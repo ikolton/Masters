@@ -1,0 +1,70 @@
+paths:
+  dataset_root_env: ORGAN_SEG_CLIP_DATASET_ROOT
+  output_dir: ../../../outputs/encoder/pilot_joint_2gpu_longer_2ep_stride128
+
+data:
+  train_split: train
+  val_split: val
+  train_limit: 512
+  val_limit: 128
+
+preprocessing:
+  resample_spacing: [2.0, 2.0, 2.0]
+  foreground_crop: true
+  canonical_size: null
+
+text_encoder:
+  backend_family: pubmedbert
+  model_name: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext
+  freeze_encoder: true
+  unfreeze_last_n_layers: 0
+  max_tokens: 48
+  pooling: cls
+  projection_dim: 256
+
+model:
+  organ_query_count: 11
+  segmamba:
+    in_channels: 1
+    depths: [2, 2, 2, 2]
+    feat_size: [48, 96, 192, 384]
+    activation_checkpointing: true
+    pretrained_checkpoint_path: ""
+    segmentation_class_count: 23
+    segmentation_full_resolution: false
+  patching:
+    patch_size: [128, 128, 128]
+    patch_stride: [128, 128, 128]
+    patch_batch_size: 1
+  tokenizer:
+    model_dim: 256
+    summary_grid: [2, 2, 2]
+  aggregator:
+    num_latents: 32
+    num_layers: 2
+    num_heads: 8
+    dropout: 0.0
+  organs:
+    diagnostic_dropout: 0.0
+
+loss:
+  organ_clip_weight: 1.0
+  segmentation_weight: 1.0
+  diagnostic_weight: 0.25
+  segmentation_loss_type: dice_ce
+
+training:
+  seed: 13
+  device: cuda
+  batch_size: 1
+  epochs: 2
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  amp: true
+  log_every_steps: 10
+  save_last_checkpoint: true
+  save_best_checkpoint: true
+  best_checkpoint_metric: val_total_loss
+
+runtime:
+  compile_model: false

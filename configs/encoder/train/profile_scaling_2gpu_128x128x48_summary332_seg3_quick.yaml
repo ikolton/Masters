@@ -1,0 +1,102 @@
+paths:
+  dataset_root_env: ORGAN_SEG_CLIP_DATASET_ROOT
+  dataset_root: /net/pr2/projects/plgrid/plggjmiag/Merlin_converted
+  output_dir: ../../../outputs/encoder/profile_scaling_2gpu_128x128x48_summary332_seg3_quick
+
+data:
+  train_split: train
+  val_split: val
+  train_limit: 16
+  val_limit: 8
+  lesion_metadata_csv: /net/tscratch/people/plgikolton/ReportGen/Merlin_metadata_hf_clean.csv
+
+preprocessing:
+  resample_spacing: [2.0, 2.0, 2.0]
+  foreground_crop: true
+  canonical_size: null
+
+text_encoder:
+  backend_family: pubmedbert
+  model_name: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext
+  freeze_encoder: true
+  unfreeze_last_n_layers: 0
+  max_tokens: 48
+  report_max_tokens: 512
+  pooling: cls
+  projection_dim: 256
+  cache_frozen_outputs: true
+
+model:
+  organ_query_count: 11
+  segmamba:
+    in_channels: 1
+    depths: [2, 2, 2, 2]
+    feat_size: [48, 96, 192, 384]
+    activation_checkpointing: true
+    pretrained_checkpoint_path: ""
+    segmentation_class_count: 23
+    segmentation_full_resolution: false
+  patching:
+    patch_size: [128, 128, 48]
+    patch_stride: [128, 128, 48]
+    patch_batch_size: 12
+    segmentation_supervision_max_patches_per_study: 3
+  tokenizer:
+    model_dim: 256
+    summary_grid: [3, 3, 2]
+  aggregator:
+    num_latents: 32
+    num_layers: 2
+    num_heads: 8
+    dropout: 0.0
+  grid_combiner:
+    enabled: true
+    depth: 2
+    num_heads: 8
+    dropout: 0.0
+    position_features: grid_box
+  organs:
+    diagnostic_dropout: 0.0
+
+loss:
+  alignment_type: siglip
+  organ_alignment_weight: 1.0
+  organ_pair_balance: true
+  organ_positive_weight: 1.0
+  organ_same_organ_weight: 1.0
+  organ_cross_organ_weight: 0.0
+  organ_frequency_balance: true
+  organ_frequency_balance_power: 0.5
+  organ_frequency_balance_min: 0.25
+  organ_frequency_balance_max: 4.0
+  report_alignment_weight: 0.0
+  segmentation_weight: 1.0
+  diagnostic_weight: 0.25
+  patch_organ_presence_weight: 0.1
+  organ_attention_weight: 0.1
+  lesion_global_weight: 0.0
+  lesion_organ_weight: 0.05
+  segmentation_loss_type: dice_ce
+
+training:
+  seed: 13
+  device: cuda
+  batch_size: 2
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  epochs: 1
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  amp: true
+  log_every_steps: 1
+  save_every_steps: 0
+  profile_timing: true
+  max_train_steps: 20
+  max_val_steps: 8
+  save_last_checkpoint: false
+  save_best_checkpoint: false
+  best_checkpoint_metric: val_total_loss
+
+runtime:
+  compile_model: false

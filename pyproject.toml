@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "organ-seg-clip"
+version = "0.1.0"
+description = "SegMamba-first organ pretraining with study-level latent attention aggregation"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "OrganSegCLIP"}]
+dependencies = [
+  "monai",
+  "mamba-ssm",
+  "nibabel",
+  "numpy",
+  "pyyaml",
+  "torch",
+  "transformers",
+  "peft",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

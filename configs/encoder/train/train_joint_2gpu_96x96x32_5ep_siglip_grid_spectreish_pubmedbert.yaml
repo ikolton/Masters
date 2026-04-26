@@ -1,0 +1,92 @@
+paths:
+  dataset_root_env: ORGAN_SEG_CLIP_DATASET_ROOT
+  dataset_root: /net/pr2/projects/plgrid/plggjmiag/Merlin_converted
+  output_dir: ../../../outputs/encoder/train_joint_2gpu_96x96x32_5ep_siglip_grid_spectreish_pubmedbert
+
+data:
+  train_split: train
+  val_split: val
+  train_limit: null
+  val_limit: null
+  lesion_metadata_csv: /net/tscratch/people/plgikolton/ReportGen/Merlin_metadata_hf_clean.csv
+
+preprocessing:
+  resample_spacing: [2.0, 2.0, 2.0]
+  foreground_crop: true
+  canonical_size: null
+
+text_encoder:
+  backend_family: pubmedbert
+  model_name: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext
+  freeze_encoder: true
+  unfreeze_last_n_layers: 0
+  max_tokens: 48
+  report_max_tokens: 512
+  pooling: cls
+  projection_dim: 256
+
+model:
+  organ_query_count: 11
+  segmamba:
+    in_channels: 1
+    depths: [2, 2, 2, 2]
+    feat_size: [48, 96, 192, 384]
+    activation_checkpointing: true
+    pretrained_checkpoint_path: ""
+    segmentation_class_count: 23
+    segmentation_full_resolution: false
+  patching:
+    patch_size: [96, 96, 32]
+    patch_stride: [96, 96, 32]
+    patch_batch_size: 1
+  tokenizer:
+    model_dim: 256
+    summary_grid: [2, 2, 2]
+  aggregator:
+    num_latents: 32
+    num_layers: 2
+    num_heads: 8
+    dropout: 0.0
+  grid_combiner:
+    enabled: true
+    depth: 3
+    num_heads: 8
+    dropout: 0.0
+    position_features: grid_box
+    use_global_token: true
+    patch_summary_mode: attention_mean
+  alignment_projection:
+    enabled: true
+    hidden_dim: 512
+    bottleneck_dim: 256
+    dropout: 0.0
+    layer_norm: true
+  organs:
+    diagnostic_dropout: 0.0
+
+loss:
+  alignment_type: siglip
+  organ_alignment_weight: 1.0
+  report_alignment_weight: 0.2
+  segmentation_weight: 1.0
+  diagnostic_weight: 0.25
+  patch_organ_presence_weight: 0.1
+  lesion_global_weight: 0.05
+  lesion_organ_weight: 0.05
+  segmentation_loss_type: dice_ce
+
+training:
+  seed: 13
+  device: cuda
+  batch_size: 2
+  epochs: 5
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  amp: true
+  log_every_steps: 25
+  save_last_checkpoint: true
+  save_best_checkpoint: true
+  best_checkpoint_metric: val_total_loss
+
+runtime:
+  compile_model: false
