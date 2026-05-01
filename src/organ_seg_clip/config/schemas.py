@@ -305,13 +305,21 @@ class TrainingConfig:
     epochs: int = 1
     learning_rate: float = 1e-4
     text_learning_rate: float | None = None
+    alignment_parameter_learning_rate: float | None = None
+    alignment_parameter_names: tuple[str, ...] = ("organ_logit_scale", "organ_logit_bias")
     weight_decay: float = 1e-4
+    scheduler_type: str = "none"
+    warmup_steps: int = 0
+    min_learning_rate: float = 0.0
+    scheduler_interval: str = "step"
     amp: bool = True
+    amp_dtype: str = "float16"
     max_grad_norm: float | None = None
     log_every_steps: int = 10
     save_every_steps: int = 0
     validation_every_epochs: int = 1
     fast_val_limit: int | None = None
+    fast_val_sampling: str = "fixed"
     fast_val_skip_segmentation: bool = False
     profile_timing: bool = False
     max_train_steps: int = 0
@@ -322,6 +330,33 @@ class TrainingConfig:
     best_checkpoint_metric: str = "val_total_loss"
     ddp_find_unused_parameters: bool = False
     resume_from: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "alignment_parameter_names", tuple(str(value) for value in self.alignment_parameter_names))
+        scheduler_type = str(self.scheduler_type).strip().lower()
+        scheduler_interval = str(self.scheduler_interval).strip().lower()
+        amp_dtype = str(self.amp_dtype).strip().lower()
+        fast_val_sampling = str(self.fast_val_sampling).strip().lower()
+        if scheduler_type not in {"none", "cosine"}:
+            raise ValueError("training.scheduler_type must be 'none' or 'cosine'.")
+        if scheduler_interval != "step":
+            raise ValueError("training.scheduler_interval currently only supports 'step'.")
+        if amp_dtype not in {"float16", "fp16", "bfloat16", "bf16"}:
+            raise ValueError("training.amp_dtype must be 'float16' or 'bfloat16'.")
+        if fast_val_sampling not in {"fixed", "epoch_random"}:
+            raise ValueError("training.fast_val_sampling must be 'fixed' or 'epoch_random'.")
+        if int(self.warmup_steps) < 0:
+            raise ValueError("training.warmup_steps must be non-negative.")
+        if float(self.min_learning_rate) < 0.0:
+            raise ValueError("training.min_learning_rate must be non-negative.")
+        if self.alignment_parameter_learning_rate is not None and float(self.alignment_parameter_learning_rate) <= 0.0:
+            raise ValueError("training.alignment_parameter_learning_rate must be positive when set.")
+        object.__setattr__(self, "scheduler_type", scheduler_type)
+        object.__setattr__(self, "scheduler_interval", scheduler_interval)
+        object.__setattr__(self, "amp_dtype", "bfloat16" if amp_dtype in {"bfloat16", "bf16"} else "float16")
+        object.__setattr__(self, "fast_val_sampling", fast_val_sampling)
+        object.__setattr__(self, "warmup_steps", int(self.warmup_steps))
+        object.__setattr__(self, "min_learning_rate", float(self.min_learning_rate))
 
 
 @dataclass(frozen=True)

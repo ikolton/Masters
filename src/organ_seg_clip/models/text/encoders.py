@@ -95,9 +95,11 @@ class HFTextEncoder(_BaseTextEncoder):
         max_length = self.config.max_tokens if max_tokens is None else int(max_tokens)
         if self.config.cache_frozen_outputs and not self._encoder_has_trainable_params:
             pooled = self._cached_frozen_pooled_outputs(texts, max_length=max_length)
-            return F.normalize(self.proj(pooled), dim=-1)
+            projected = self.proj(pooled)
+            return F.normalize(projected.float(), dim=-1, eps=1e-6).to(projected.dtype)
         pooled = self._encode_pooled(texts, max_length=max_length)
-        return F.normalize(self.proj(pooled), dim=-1)
+        projected = self.proj(pooled)
+        return F.normalize(projected.float(), dim=-1, eps=1e-6).to(projected.dtype)
 
     def _encode_pooled(self, texts: list[str], *, max_length: int) -> torch.Tensor:
         encoded = self.tokenizer(
@@ -193,7 +195,8 @@ class HashTextEncoder(_BaseTextEncoder):
                 continue
             ids = torch.tensor([hash(word) % vocab_size for word in words], device=device, dtype=torch.long)
             pooled.append(self.embedding(ids).mean(dim=0))
-        return F.normalize(self.proj(torch.stack(pooled, dim=0)), dim=-1)
+        projected = self.proj(torch.stack(pooled, dim=0))
+        return F.normalize(projected.float(), dim=-1, eps=1e-6).to(projected.dtype)
 
     def _output_zeros(self, batch_size: int, organ_count: int) -> torch.Tensor:
         return self.proj.weight.new_zeros((batch_size, organ_count, self.config.projection_dim))

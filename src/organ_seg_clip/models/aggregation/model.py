@@ -9,6 +9,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint as activation_checkpoint
 
 from ...config.schemas import EncoderConfig
 from ...data.organ_masks import DEFAULT_MERLIN_MASK_MAP
@@ -238,10 +239,8 @@ class OrganSegCLIPModel(nn.Module):
         organ_attention_negative_count = 0
         if self.enable_organ_attention:
             organ_patch_features, organ_attention_logits = self.organ_patch_attention_head(token_tensor, token_mask)
-            organ_image_features = F.normalize(
-                self.organ_patch_fusion(torch.cat([organ_image_features, organ_patch_features], dim=-1)),
-                dim=-1,
-            )
+            fused_organ_features = self.organ_patch_fusion(torch.cat([organ_image_features, organ_patch_features], dim=-1))
+            organ_image_features = F.normalize(fused_organ_features.float(), dim=-1, eps=1e-6).to(fused_organ_features.dtype)
             if attention_target_mask.any():
                 target_logits = organ_attention_logits.transpose(1, 2)[attention_target_mask]
                 target_values = attention_targets[attention_target_mask]
@@ -379,7 +378,14 @@ class OrganSegCLIPModel(nn.Module):
 
         patch_refs: list[tuple[int, int]] = []
         for study_index, study in enumerate(studies):
-            patch_refs.extend((study_index, box_index) for box_index in range(len(study.boxes)))
+            patch_refs.extend(
+                (study_index, box_index)
+                for box_index in _ordered_patch_indices_for_encoding(
+                    box_count=len(study.boxes),
+                    supervised_patch_indices=study.supervised_patch_indices,
+                    training=self.training,
+                )
+            )
 
         default_patch_batch_size = max(int(self.patch_batch_size), 1)
         total_chunks = (len(patch_refs) + default_patch_batch_size - 1) // default_patch_batch_size
@@ -409,27 +415,29 @@ class OrganSegCLIPModel(nn.Module):
                         f" free_gb={free_gb:.2f}",
                         flush=True,
                     )
-            image_tiles = torch.stack(
-                [
-                    extract_tile(studies[study_index].cropped_image, studies[study_index].boxes[box_index], self.patch_size)
-                    for study_index, box_index in chunk_refs
-                ],
-                dim=0,
-            )
-            chunk_device = image_tiles.device
-            chunk_tile_count = int(image_tiles.shape[0])
-            if active_debug_step:
-                _debug_chunk_memory(
-                    step=active_debug_step,
-                    phase="before_patch_encoder",
-                    chunk_index=chunk_index,
-                    total_chunks=total_chunks,
-                    device=chunk_device,
-                    tile_count=chunk_tile_count,
-                    study_counts=debug_counts_by_study,
-                )
+            chunk_device = self.logit_scale.device
             while True:
+                chunk_tile_count = int(len(chunk_refs))
                 try:
+                    image_tiles = torch.stack(
+                        [
+                            extract_tile(studies[study_index].cropped_image, studies[study_index].boxes[box_index], self.patch_size)
+                            for study_index, box_index in chunk_refs
+                        ],
+                        dim=0,
+                    )
+                    chunk_device = image_tiles.device
+                    chunk_tile_count = int(image_tiles.shape[0])
+                    if active_debug_step:
+                        _debug_chunk_memory(
+                            step=active_debug_step,
+                            phase="before_patch_encoder",
+                            chunk_index=chunk_index,
+                            total_chunks=total_chunks,
+                            device=chunk_device,
+                            tile_count=chunk_tile_count,
+                            study_counts=debug_counts_by_study,
+                        )
                     feature_pyramid = self.patch_encoder(image_tiles)
                     break
                 except torch.OutOfMemoryError:
@@ -443,7 +451,8 @@ class OrganSegCLIPModel(nn.Module):
                             tile_count=chunk_tile_count,
                             study_counts=debug_counts_by_study,
                         )
-                    del image_tiles
+                    if "image_tiles" in locals():
+                        del image_tiles
                     if chunk_device.type == "cuda":
                         torch.cuda.empty_cache()
                     if chunk_tile_count <= 1:
@@ -459,24 +468,7 @@ class OrganSegCLIPModel(nn.Module):
                             f" retrying_patch_encoder_with_tiles={chunk_size}",
                             flush=True,
                         )
-                    image_tiles = torch.stack(
-                        [
-                            extract_tile(studies[study_index].cropped_image, studies[study_index].boxes[box_index], self.patch_size)
-                            for study_index, box_index in chunk_refs
-                        ],
-                        dim=0,
-                    )
-                    chunk_tile_count = int(image_tiles.shape[0])
-                    if active_debug_step:
-                        _debug_chunk_memory(
-                            step=active_debug_step,
-                            phase="before_patch_encoder_retry",
-                            chunk_index=chunk_index,
-                            total_chunks=total_chunks,
-                            device=chunk_device,
-                            tile_count=chunk_tile_count,
-                            study_counts=debug_counts_by_study,
-                        )
+                    continue
             if active_debug_step:
                 _debug_chunk_memory(
                     step=active_debug_step,
@@ -565,18 +557,40 @@ class OrganSegCLIPModel(nn.Module):
                             supervised_feature_pyramid = tuple(
                                 features.index_select(0, supervised_indices) for features in feature_pyramid
                             )
-                            chunk_loss_sum, chunk_dice_sum, supervised_count, fallback_count = _segmentation_supervision_with_oom_fallback(
-                                patch_segmentation_head=self.patch_segmentation_head,
-                                supervised_image_tiles=supervised_image_tiles,
-                                supervised_feature_pyramid=supervised_feature_pyramid,
-                                supervised_segmentation_tiles=supervised_segmentation_tiles,
-                                supervised_segmentation_mask_tiles=supervised_segmentation_mask_tiles,
-                                loss_type=self.segmentation_loss_type,
-                            )
-                            loss_sums[study_index] = loss_sums[study_index] + chunk_loss_sum
-                            dice_sums[study_index] += chunk_dice_sum
-                            patch_counts[study_index] += supervised_count
-                            segmentation_oom_fallback_counts[study_index] += fallback_count
+                            try:
+                                chunk_loss_sum, chunk_dice_sum, supervised_count, fallback_count = _segmentation_supervision_with_oom_fallback(
+                                    patch_segmentation_head=self.patch_segmentation_head,
+                                    supervised_image_tiles=supervised_image_tiles,
+                                    supervised_feature_pyramid=supervised_feature_pyramid,
+                                    supervised_segmentation_tiles=supervised_segmentation_tiles,
+                                    supervised_segmentation_mask_tiles=supervised_segmentation_mask_tiles,
+                                    loss_type=self.segmentation_loss_type,
+                                    debug_step=active_debug_step,
+                                    debug_phase=f"direct_segmentation chunk={chunk_index}/{total_chunks} study={study_index}",
+                                )
+                            except torch.OutOfMemoryError:
+                                if active_debug_step:
+                                    print(
+                                        f"[debug step {active_debug_step}] chunk={chunk_index}/{total_chunks}"
+                                        f" study={study_index} direct_segmentation_oom_deferring_recompute",
+                                        flush=True,
+                                    )
+                                del supervised_feature_pyramid
+                                if image_tiles.device.type == "cuda":
+                                    torch.cuda.empty_cache()
+                                deferred_segmentation_work.append(
+                                    _DeferredSegmentationWork(
+                                        study_index=study_index,
+                                        supervised_image_tiles=supervised_image_tiles,
+                                        supervised_segmentation_tiles=supervised_segmentation_tiles,
+                                        supervised_segmentation_mask_tiles=supervised_segmentation_mask_tiles,
+                                    )
+                                )
+                            else:
+                                loss_sums[study_index] = loss_sums[study_index] + chunk_loss_sum
+                                dice_sums[study_index] += chunk_dice_sum
+                                patch_counts[study_index] += supervised_count
+                                segmentation_oom_fallback_counts[study_index] += fallback_count
 
                 patch_targets = None
                 patch_target_mask = None
@@ -643,6 +657,8 @@ class OrganSegCLIPModel(nn.Module):
                         supervised_segmentation_tiles=work.supervised_segmentation_tiles,
                         supervised_segmentation_mask_tiles=work.supervised_segmentation_mask_tiles,
                         loss_type=self.segmentation_loss_type,
+                        debug_step=active_debug_step,
+                        debug_phase=f"deferred_segmentation chunk={chunk_index}/{total_chunks} study={work.study_index}",
                     )
                     loss_sums[work.study_index] = loss_sums[work.study_index] + chunk_loss_sum
                     dice_sums[work.study_index] += chunk_dice_sum
@@ -752,6 +768,8 @@ def _segmentation_supervision_with_oom_fallback(
     supervised_segmentation_tiles: torch.Tensor,
     supervised_segmentation_mask_tiles: torch.Tensor | None,
     loss_type: str,
+    debug_step: str = "",
+    debug_phase: str = "",
 ) -> tuple[torch.Tensor, float, int, int]:
     supervised_count = int(supervised_image_tiles.shape[0])
     if supervised_count == 0:
@@ -765,6 +783,7 @@ def _segmentation_supervision_with_oom_fallback(
     dice_intersection_sums: torch.Tensor | None = None
     dice_prediction_sums: torch.Tensor | None = None
     dice_target_sums: torch.Tensor | None = None
+    fallback_count = 0
 
     for sample_index in range(supervised_count):
         sample_slice = slice(sample_index, sample_index + 1)
@@ -776,7 +795,41 @@ def _segmentation_supervision_with_oom_fallback(
             if supervised_segmentation_mask_tiles is None
             else supervised_segmentation_mask_tiles[sample_slice]
         )
-        logits = patch_segmentation_head(sample_image_tiles, sample_feature_pyramid)
+        if debug_step:
+            _debug_segmentation_memory(
+                step=debug_step,
+                phase=f"{debug_phase} before_seg_head sample={sample_index + 1}/{supervised_count}",
+                device=sample_image_tiles.device,
+                image_tiles=sample_image_tiles,
+                feature_pyramid=sample_feature_pyramid,
+            )
+        try:
+            logits = patch_segmentation_head(sample_image_tiles, sample_feature_pyramid)
+        except torch.OutOfMemoryError:
+            fallback_count += 1
+            if sample_image_tiles.device.type == "cuda":
+                torch.cuda.empty_cache()
+            if debug_step:
+                print(
+                    f"[debug step {debug_step}] phase={debug_phase}"
+                    f" sample={sample_index + 1}/{supervised_count}"
+                    " seg_head_oom_retry_checkpoint",
+                    flush=True,
+                )
+            logits = _checkpointed_segmentation_head(
+                patch_segmentation_head,
+                sample_image_tiles,
+                sample_feature_pyramid,
+            )
+        if debug_step:
+            _debug_segmentation_memory(
+                step=debug_step,
+                phase=f"{debug_phase} after_seg_head sample={sample_index + 1}/{supervised_count}",
+                device=sample_image_tiles.device,
+                image_tiles=sample_image_tiles,
+                feature_pyramid=sample_feature_pyramid,
+                logits=logits,
+            )
         _, sample_ce_numerator, sample_ce_denominator, sample_dice_sum, sample_dice_count = (
             segmentation_supervision_loss(
                 logits,
@@ -803,6 +856,15 @@ def _segmentation_supervision_with_oom_fallback(
         dice_intersection_sums += sample_intersection_sums
         dice_prediction_sums += sample_prediction_sums
         dice_target_sums += sample_target_sums
+        if debug_step:
+            _debug_segmentation_memory(
+                step=debug_step,
+                phase=f"{debug_phase} after_seg_loss sample={sample_index + 1}/{supervised_count}",
+                device=sample_image_tiles.device,
+                image_tiles=sample_image_tiles,
+                feature_pyramid=sample_feature_pyramid,
+                logits=logits,
+            )
 
     if loss_type == "ce":
         chunk_loss = ce_numerator_sum / ce_denominator_sum.clamp_min(1.0)
@@ -824,7 +886,24 @@ def _segmentation_supervision_with_oom_fallback(
         chunk_dice = float(class_scores.mean().item())
     else:
         chunk_dice = 1.0
-    return chunk_loss * supervised_count, chunk_dice * supervised_count, supervised_count, 0
+    return chunk_loss * supervised_count, chunk_dice * supervised_count, supervised_count, fallback_count
+
+
+def _checkpointed_segmentation_head(
+    patch_segmentation_head: nn.Module,
+    image_tiles: torch.Tensor,
+    feature_pyramid: tuple[torch.Tensor, ...],
+) -> torch.Tensor:
+    def _forward(image: torch.Tensor, *features: torch.Tensor) -> torch.Tensor:
+        return patch_segmentation_head(image, tuple(features))
+
+    return activation_checkpoint(
+        _forward,
+        image_tiles,
+        *feature_pyramid,
+        use_reentrant=False,
+        preserve_rng_state=False,
+    )
 
 
 def _segmentation_recompute_min_free_bytes_from_env() -> int:
@@ -892,6 +971,26 @@ def _sample_segmentation_supervision_indices(
     return torch.randperm(int(box_count), device=device)[: int(max_patches)]
 
 
+def _ordered_patch_indices_for_encoding(
+    *,
+    box_count: int,
+    supervised_patch_indices: torch.Tensor | None,
+    training: bool,
+) -> list[int]:
+    if not training or supervised_patch_indices is None or int(supervised_patch_indices.numel()) == 0:
+        return list(range(int(box_count)))
+    supervised_order: list[int] = []
+    supervised_set: set[int] = set()
+    for raw_index in supervised_patch_indices.detach().cpu().tolist():
+        box_index = int(raw_index)
+        if 0 <= box_index < int(box_count) and box_index not in supervised_set:
+            supervised_order.append(box_index)
+            supervised_set.add(box_index)
+    if not supervised_order:
+        return list(range(int(box_count)))
+    return supervised_order + [box_index for box_index in range(int(box_count)) if box_index not in supervised_set]
+
+
 def _chunk_supervision_mask(
     *,
     box_indices: list[int],
@@ -939,6 +1038,37 @@ def _debug_chunk_memory(
         f"[debug step {step}] phase={phase} chunk={chunk_index}/{total_chunks}"
         f" tiles={tile_count} study_patch_counts={counts_text}"
         f" alloc_gb={allocated_gb:.2f} reserved_gb={reserved_gb:.2f} max_alloc_gb={max_allocated_gb:.2f}",
+        flush=True,
+    )
+
+
+def _debug_segmentation_memory(
+    *,
+    step: str,
+    phase: str,
+    device: torch.device,
+    image_tiles: torch.Tensor,
+    feature_pyramid: tuple[torch.Tensor, ...],
+    logits: torch.Tensor | None = None,
+) -> None:
+    if device.type == "cuda":
+        allocated_gb = torch.cuda.memory_allocated(device) / (1024 ** 3)
+        reserved_gb = torch.cuda.memory_reserved(device) / (1024 ** 3)
+        max_allocated_gb = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+        free_gb = _cuda_free_memory_gb(device)
+    else:
+        allocated_gb = 0.0
+        reserved_gb = 0.0
+        max_allocated_gb = 0.0
+        free_gb = 0.0
+    feature_shapes = ",".join("x".join(str(int(dim)) for dim in feature.shape) for feature in feature_pyramid)
+    logits_shape = "none" if logits is None else "x".join(str(int(dim)) for dim in logits.shape)
+    image_shape = "x".join(str(int(dim)) for dim in image_tiles.shape)
+    print(
+        f"[debug step {step}] phase={phase}"
+        f" image_shape={image_shape} feature_shapes={feature_shapes} logits_shape={logits_shape}"
+        f" alloc_gb={allocated_gb:.2f} reserved_gb={reserved_gb:.2f}"
+        f" max_alloc_gb={max_allocated_gb:.2f} free_gb={free_gb:.2f}",
         flush=True,
     )
 

@@ -121,10 +121,8 @@ class VisualOrganEncoder(nn.Module):
         study_latents = self.study_aggregator(visual_tokens, visual_token_mask)
         organ_features = self.organ_head(study_latents)
         organ_patch_features, _ = self.organ_patch_attention_head(visual_tokens, visual_token_mask)
-        organ_embeddings = F.normalize(
-            self.organ_patch_fusion(torch.cat([organ_features, organ_patch_features], dim=-1)),
-            dim=-1,
-        )
+        fused_organ_features = self.organ_patch_fusion(torch.cat([organ_features, organ_patch_features], dim=-1))
+        organ_embeddings = F.normalize(fused_organ_features.float(), dim=-1, eps=1e-6).to(fused_organ_features.dtype)
         report_embedding = self.report_head(study_latents)
         return VisualEncoderOutput(
             study_ids=list(batch.study_ids),

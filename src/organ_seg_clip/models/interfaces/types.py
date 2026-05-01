@@ -55,10 +55,10 @@ class OrganSegOutput:
     organ_attention_count: int
     organ_attention_positive_count: int
     organ_attention_negative_count: int
-    patches_per_batch_total: int
-    patches_per_study_mean: float
-    patches_per_study_max: int
-    segmentation_oom_fallback_count: int
+    patches_per_batch_total: int = 0
+    patches_per_study_mean: float = 0.0
+    patches_per_study_max: int = 0
+    segmentation_oom_fallback_count: int = 0
 
 
 @dataclass(frozen=True)

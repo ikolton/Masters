@@ -125,7 +125,8 @@ class OrganQueryHead(nn.Module):
             self.token_norm(latents),
             need_weights=False,
         )
-        return F.normalize(self.proj(attended), dim=-1)
+        projected = self.proj(attended)
+        return F.normalize(projected.float(), dim=-1, eps=1e-6).to(projected.dtype)
 
 
 class OrganPatchAttentionHead(nn.Module):
@@ -152,7 +153,8 @@ class OrganPatchAttentionHead(nn.Module):
         weights = torch.softmax(logits, dim=-1)
         weights = self.dropout(weights)
         features = torch.matmul(weights, values)
-        return F.normalize(self.proj(features), dim=-1), logits
+        projected = self.proj(features)
+        return F.normalize(projected.float(), dim=-1, eps=1e-6).to(projected.dtype), logits
 
 
 class PatchSummaryHead(nn.Module):
@@ -268,5 +270,5 @@ class StudyReportHead(nn.Module):
             self.token_norm(latents),
             need_weights=False,
         )
-        return F.normalize(self.proj(attended.squeeze(1)), dim=-1)
-
+        projected = self.proj(attended.squeeze(1))
+        return F.normalize(projected.float(), dim=-1, eps=1e-6).to(projected.dtype)

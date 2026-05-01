@@ -5,6 +5,12 @@ wandb/
 *.pth
 *.ckpt
 
+# Local training/debug config scratch space
+configs/encoder/train/debug_nan/
+configs/encoder/train/debug_profile/
+configs/encoder/train/legacy/debug_nan/
+configs/encoder/train/legacy/debug_profile/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+import random
 from typing import Any
 
 import torch
@@ -63,6 +64,7 @@ def save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer | None,
     scaler: torch.cuda.amp.GradScaler | None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     epoch: int,
     config: dict[str, Any],
     metrics: dict[str, float],
@@ -77,6 +79,8 @@ def save_checkpoint(
         "model_state": unwrap_model(model).state_dict(),
         "optimizer_state": None if optimizer is None else optimizer.state_dict(),
         "scaler_state": None if scaler is None else scaler.state_dict(),
+        "scheduler_state": None if scheduler is None else scheduler.state_dict(),
+        "rng_state": capture_rng_state(),
         "config": config,
         "metrics": metrics,
     }
@@ -94,8 +98,10 @@ def load_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
     scaler: torch.cuda.amp.GradScaler | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     map_location: str | torch.device = "cpu",
     strict: bool = True,
+    restore_rng: bool = True,
 ) -> dict[str, Any]:
     payload = torch.load(Path(path).expanduser().resolve(), map_location=map_location)
     state_dict = resolve_checkpoint_state_dict(payload)
@@ -104,7 +110,39 @@ def load_checkpoint(
         optimizer.load_state_dict(payload["optimizer_state"])
     if scaler is not None and payload.get("scaler_state") is not None:
         scaler.load_state_dict(payload["scaler_state"])
+    if scheduler is not None and payload.get("scheduler_state") is not None:
+        scheduler.load_state_dict(payload["scheduler_state"])
+    if restore_rng and payload.get("rng_state") is not None:
+        restore_rng_state(payload["rng_state"])
     return payload
+
+
+def capture_rng_state() -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "python": random.getstate(),
+        "torch": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def restore_rng_state(state: Mapping[str, Any]) -> None:
+    python_state = state.get("python")
+    if python_state is not None:
+        random.setstate(python_state)
+    torch_state = state.get("torch")
+    if torch_state is not None:
+        torch.set_rng_state(_as_cpu_rng_tensor(torch_state))
+    cuda_state = state.get("cuda")
+    if cuda_state is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all([_as_cpu_rng_tensor(item) for item in cuda_state])
+
+
+def _as_cpu_rng_tensor(value: Any) -> torch.ByteTensor:
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().to(dtype=torch.uint8)
+    return torch.tensor(value, dtype=torch.uint8)
 
 
 def load_pretrained_submodule(

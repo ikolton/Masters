@@ -77,7 +77,6 @@ class ExperimentLogger:
     def log_step(self, *, run_label: str, metrics: dict[str, float], epoch: int, step_index: int) -> None:
         if not self._enabled or self._wandb is None:
             return
-        normalized = "val" if run_label == "fast-val" else run_label
         if int(self._train_steps_seen) < int(self._step_log_start):
             return
         self._ensure_initialized()
@@ -144,17 +143,17 @@ class ExperimentLogger:
 
 def _step_metric_payload(*, run_label: str, metrics: dict[str, float]) -> dict[str, float]:
     payload: dict[str, float] = {}
-    normalized = "val" if run_label == "fast-val" else run_label
-    if normalized not in {"train", "val"}:
+    normalized = "smoke_val" if run_label in {"fast-val", "smoke-val"} else ("full_val" if run_label == "val" else run_label)
+    if normalized not in {"train", "full_val", "smoke_val"}:
         normalized = run_label
     if normalized == "train":
         primary_keys = (
-            ("00_train/total_loss", "total_loss"),
-            ("00_train/organ_alignment_loss", "organ_alignment_loss"),
-            ("00_train/segmentation_loss", "segmentation_loss"),
-            ("00_train/segmentation_dice", "segmentation_dice"),
-            ("00_train/diagnostic_loss", "diagnostic_loss"),
-            ("00_train/diagnostic_accuracy", "diagnostic_accuracy"),
+            ("train/total_loss", "total_loss"),
+            ("train/organ_alignment_loss", "organ_alignment_loss"),
+            ("train/segmentation_loss", "segmentation_loss"),
+            ("train/segmentation_dice", "segmentation_dice"),
+            ("train/diagnostic_loss", "diagnostic_loss"),
+            ("train/diagnostic_accuracy", "diagnostic_accuracy"),
         )
         secondary_keys = (
             ("train/organ_image_to_text_top1", "organ_image_to_text_top1"),
@@ -165,23 +164,31 @@ def _step_metric_payload(*, run_label: str, metrics: dict[str, float]) -> dict[s
             ("train/segmentation_oom_fallback_count", "segmentation_oom_fallback_count"),
             ("train/step_seconds", "step_seconds"),
             ("train/data_wait_seconds", "data_wait_seconds"),
+            ("train/lr_main", "lr_main"),
+            ("train/lr_text", "lr_text"),
+            ("train/lr_alignment_parameters", "lr_alignment_parameters"),
+            ("train/organ_logit_scale", "organ_logit_scale"),
+            ("train/organ_logit_bias", "organ_logit_bias"),
         )
     else:
+        prefix = f"{normalized}_batch"
         primary_keys = ()
         secondary_keys = (
-            ("val/total_loss", "total_loss"),
-            ("val/organ_alignment_loss", "organ_alignment_loss"),
-            ("val/segmentation_loss", "segmentation_loss"),
-            ("val/segmentation_dice", "segmentation_dice"),
-            ("val/diagnostic_loss", "diagnostic_loss"),
-            ("val/diagnostic_accuracy", "diagnostic_accuracy"),
-            ("val/organ_image_to_text_top1", "organ_image_to_text_top1"),
-            ("val/organ_text_to_image_top1", "organ_text_to_image_top1"),
-            ("val/patch_organ_presence_loss", "patch_organ_presence_loss"),
-            ("val/organ_attention_loss", "organ_attention_loss"),
-            ("val/lesion_organ_loss", "lesion_organ_loss"),
-            ("val/segmentation_oom_fallback_count", "segmentation_oom_fallback_count"),
-            ("val/step_seconds", "step_seconds"),
+            (f"{prefix}/total_loss", "total_loss"),
+            (f"{prefix}/organ_alignment_loss", "organ_alignment_loss"),
+            (f"{prefix}/segmentation_loss", "segmentation_loss"),
+            (f"{prefix}/segmentation_dice", "segmentation_dice"),
+            (f"{prefix}/diagnostic_loss", "diagnostic_loss"),
+            (f"{prefix}/diagnostic_accuracy", "diagnostic_accuracy"),
+            (f"{prefix}/organ_image_to_text_top1", "organ_image_to_text_top1"),
+            (f"{prefix}/organ_text_to_image_top1", "organ_text_to_image_top1"),
+            (f"{prefix}/patch_organ_presence_loss", "patch_organ_presence_loss"),
+            (f"{prefix}/organ_attention_loss", "organ_attention_loss"),
+            (f"{prefix}/lesion_organ_loss", "lesion_organ_loss"),
+            (f"{prefix}/segmentation_oom_fallback_count", "segmentation_oom_fallback_count"),
+            (f"{prefix}/step_seconds", "step_seconds"),
+            (f"{prefix}/organ_logit_scale", "organ_logit_scale"),
+            (f"{prefix}/organ_logit_bias", "organ_logit_bias"),
         )
     for alias_key, source_key in primary_keys + secondary_keys:
         if source_key in metrics and isinstance(metrics[source_key], (int, float)):
@@ -193,23 +200,72 @@ def _epoch_summary_payload(epoch_metrics: dict[str, float]) -> dict[str, float]:
     payload: dict[str, float] = {}
     if "epoch" in epoch_metrics and isinstance(epoch_metrics["epoch"], (int, float)):
         payload["meta/epoch"] = float(epoch_metrics["epoch"])
-    ordered_keys = (
-        ("01_epoch/train_total_loss", "train_total_loss"),
-        ("01_epoch/train_organ_alignment_loss", "train_organ_alignment_loss"),
-        ("01_epoch/train_segmentation_loss", "train_segmentation_loss"),
-        ("01_epoch/train_segmentation_dice", "train_segmentation_dice"),
-        ("01_epoch/train_diagnostic_loss", "train_diagnostic_loss"),
-        ("01_epoch/train_diagnostic_accuracy", "train_diagnostic_accuracy"),
-        ("01_epoch/val_total_loss", "val_total_loss"),
-        ("01_epoch/val_organ_alignment_loss", "val_organ_alignment_loss"),
-        ("01_epoch/val_segmentation_loss", "val_segmentation_loss"),
-        ("01_epoch/val_segmentation_dice", "val_segmentation_dice"),
-        ("01_epoch/val_diagnostic_loss", "val_diagnostic_loss"),
-        ("01_epoch/val_diagnostic_accuracy", "val_diagnostic_accuracy"),
-        ("01_epoch/train_segmentation_oom_fallback_count", "train_segmentation_oom_fallback_count"),
-        ("01_epoch/val_segmentation_oom_fallback_count", "val_segmentation_oom_fallback_count"),
+    if "validation_kind_full" in epoch_metrics and isinstance(epoch_metrics["validation_kind_full"], (int, float)):
+        payload["meta/validation_kind_full"] = float(epoch_metrics["validation_kind_full"])
+    preferred_keys = (
+        ("epoch/train_total_loss", "train_total_loss"),
+        ("epoch/train_organ_alignment_loss", "train_organ_alignment_loss"),
+        ("epoch/train_segmentation_loss", "train_segmentation_loss"),
+        ("epoch/train_segmentation_dice", "train_segmentation_dice"),
+        ("epoch/train_diagnostic_loss", "train_diagnostic_loss"),
+        ("epoch/train_diagnostic_accuracy", "train_diagnostic_accuracy"),
+        ("epoch/train_organ_image_to_text_top1", "train_organ_image_to_text_top1"),
+        ("epoch/train_organ_text_to_image_top1", "train_organ_text_to_image_top1"),
+        ("epoch/train_organ_logit_gap", "train_organ_logit_gap"),
+        ("epoch/train_organ_logit_scale", "train_organ_logit_scale"),
+        ("epoch/train_organ_logit_bias", "train_organ_logit_bias"),
+        ("epoch/train_patch_organ_presence_loss", "train_patch_organ_presence_loss"),
+        ("epoch/train_organ_attention_loss", "train_organ_attention_loss"),
+        ("epoch/train_organ_attention_positive_accuracy", "train_organ_attention_positive_accuracy"),
+        ("epoch/train_organ_attention_negative_accuracy", "train_organ_attention_negative_accuracy"),
+        ("epoch/train_lr_main", "train_lr_main"),
+        ("epoch/train_lr_text", "train_lr_text"),
+        ("epoch/train_lr_alignment_parameters", "train_lr_alignment_parameters"),
+        ("epoch/full_val_total_loss", "full_val_total_loss"),
+        ("epoch/full_val_organ_alignment_loss", "full_val_organ_alignment_loss"),
+        ("epoch/full_val_segmentation_loss", "full_val_segmentation_loss"),
+        ("epoch/full_val_segmentation_dice", "full_val_segmentation_dice"),
+        ("epoch/full_val_diagnostic_loss", "full_val_diagnostic_loss"),
+        ("epoch/full_val_diagnostic_accuracy", "full_val_diagnostic_accuracy"),
+        ("epoch/full_val_organ_image_to_text_top1", "full_val_organ_image_to_text_top1"),
+        ("epoch/full_val_organ_text_to_image_top1", "full_val_organ_text_to_image_top1"),
+        ("epoch/full_val_organ_logit_gap", "full_val_organ_logit_gap"),
+        ("epoch/full_val_organ_positive_logit_mean", "full_val_organ_positive_logit_mean"),
+        ("epoch/full_val_organ_negative_logit_mean", "full_val_organ_negative_logit_mean"),
+        ("epoch/full_val_organ_logit_scale", "full_val_organ_logit_scale"),
+        ("epoch/full_val_organ_logit_bias", "full_val_organ_logit_bias"),
+        ("epoch/full_val_patch_organ_presence_loss", "full_val_patch_organ_presence_loss"),
+        ("epoch/full_val_organ_attention_loss", "full_val_organ_attention_loss"),
+        ("epoch/full_val_organ_attention_positive_accuracy", "full_val_organ_attention_positive_accuracy"),
+        ("epoch/full_val_organ_attention_negative_accuracy", "full_val_organ_attention_negative_accuracy"),
+        ("epoch/smoke_val_total_loss", "smoke_val_total_loss"),
+        ("epoch/smoke_val_organ_alignment_loss", "smoke_val_organ_alignment_loss"),
+        ("epoch/smoke_val_segmentation_loss", "smoke_val_segmentation_loss"),
+        ("epoch/smoke_val_segmentation_dice", "smoke_val_segmentation_dice"),
+        ("epoch/smoke_val_diagnostic_loss", "smoke_val_diagnostic_loss"),
+        ("epoch/smoke_val_diagnostic_accuracy", "smoke_val_diagnostic_accuracy"),
+        ("epoch/smoke_val_organ_image_to_text_top1", "smoke_val_organ_image_to_text_top1"),
+        ("epoch/smoke_val_organ_text_to_image_top1", "smoke_val_organ_text_to_image_top1"),
+        ("epoch/smoke_val_organ_logit_gap", "smoke_val_organ_logit_gap"),
+        ("epoch/smoke_val_organ_positive_logit_mean", "smoke_val_organ_positive_logit_mean"),
+        ("epoch/smoke_val_organ_negative_logit_mean", "smoke_val_organ_negative_logit_mean"),
+        ("epoch/smoke_val_organ_logit_scale", "smoke_val_organ_logit_scale"),
+        ("epoch/smoke_val_organ_logit_bias", "smoke_val_organ_logit_bias"),
+        ("epoch/smoke_val_patch_organ_presence_loss", "smoke_val_patch_organ_presence_loss"),
+        ("epoch/smoke_val_organ_attention_loss", "smoke_val_organ_attention_loss"),
+        ("epoch/smoke_val_organ_attention_positive_accuracy", "smoke_val_organ_attention_positive_accuracy"),
+        ("epoch/smoke_val_organ_attention_negative_accuracy", "smoke_val_organ_attention_negative_accuracy"),
+        ("epoch/train_segmentation_oom_fallback_count", "train_segmentation_oom_fallback_count"),
+        ("epoch/full_val_segmentation_oom_fallback_count", "full_val_segmentation_oom_fallback_count"),
+        ("epoch/smoke_val_segmentation_oom_fallback_count", "smoke_val_segmentation_oom_fallback_count"),
     )
-    for alias_key, source_key in ordered_keys:
+    for alias_key, source_key in preferred_keys:
         if source_key in epoch_metrics and isinstance(epoch_metrics[source_key], (int, float)):
             payload[alias_key] = float(epoch_metrics[source_key])
+    for source_key, value in sorted(epoch_metrics.items()):
+        if not isinstance(value, (int, float)):
+            continue
+        if source_key in {"epoch", "validation_kind_full"}:
+            continue
+        payload.setdefault(f"epoch/{source_key}", float(value))
     return payload

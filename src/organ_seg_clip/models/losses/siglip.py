@@ -64,8 +64,8 @@ def masked_organ_siglip_loss(
         device=flat_image.device,
     )
 
-    image_embeddings = F.normalize(flat_image, dim=-1)
-    text_embeddings = F.normalize(flat_text, dim=-1)
+    image_embeddings = F.normalize(flat_image.float(), dim=-1, eps=1e-6).to(flat_image.dtype)
+    text_embeddings = F.normalize(flat_text.float(), dim=-1, eps=1e-6).to(flat_text.dtype)
     scale = logit_scale if isinstance(logit_scale, torch.Tensor) else image_embeddings.new_tensor(float(logit_scale))
     bias = logit_bias if isinstance(logit_bias, torch.Tensor) else image_embeddings.new_tensor(float(logit_bias))
     if _is_distributed():
@@ -161,8 +161,8 @@ def masked_report_siglip_loss(
     if not report_mask.any():
         zero = report_image_embeddings.sum() * 0.0
         return zero, {"image_to_text_top1": 0.0, "text_to_image_top1": 0.0, "valid_count": 0.0}
-    image_embeddings = F.normalize(report_image_embeddings, dim=-1)
-    text_embeddings = F.normalize(report_text_embeddings, dim=-1)
+    image_embeddings = F.normalize(report_image_embeddings.float(), dim=-1, eps=1e-6).to(report_image_embeddings.dtype)
+    text_embeddings = F.normalize(report_text_embeddings.float(), dim=-1, eps=1e-6).to(report_text_embeddings.dtype)
     scale = logit_scale if isinstance(logit_scale, torch.Tensor) else image_embeddings.new_tensor(float(logit_scale))
     bias = logit_bias if isinstance(logit_bias, torch.Tensor) else image_embeddings.new_tensor(float(logit_bias))
     local_ids = [_normalize_text_label(study_id) for study_id in study_ids]
