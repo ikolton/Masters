@@ -1,0 +1,44 @@
+organ: Spleen
+maturity_tier: tier_2
+allow_online_expansion: true
+subtypes:
+  spleen_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The spleen is normal in size and homogeneous, with no splenomegaly or focal lesions identified.
+      - The spleen is normal in size and attenuation.
+      - The spleen appears normal in size. No evidence of splenic masses.
+    contrast_examples:
+      - Subcentimeter hypodensity, too small to characterize.
+      - Simple splenic cysts measuring up to 4.2 cm.
+    maturity_tier: tier_2
+  spleen_absent_postop:
+    family: absent_postop
+    canonical_label: surgically absent
+    positive_examples:
+      - Surgically absent.
+    contrast_examples:
+      - The spleen is normal in size and attenuation.
+    maturity_tier: tier_1
+  spleen_cystic_lesion:
+    family: cystic_lesion
+    canonical_label: splenic cysts
+    positive_examples:
+      - Simple splenic cysts measuring up to 4.2 cm.
+      - Subcentimeter splenic cyst.
+    contrast_examples:
+      - Subcentimeter hypodensity, too small to characterize.
+      - The spleen is normal in size and attenuation.
+    maturity_tier: tier_2
+  spleen_indeterminate_hypodensity:
+    family: focal_lesion
+    canonical_label: indeterminate splenic hypodensity
+    positive_examples:
+      - Subcentimeter hypodensity, too small to characterize.
+      - Subcentimeter hypodensity within the spleen, too small to accurately characterize.
+      - Subcentimeter hypodensities.
+    contrast_examples:
+      - Simple splenic cysts measuring up to 4.2 cm.
+      - The spleen is normal in size and homogeneous, with no splenomegaly or focal lesions identified.
+    maturity_tier: tier_2

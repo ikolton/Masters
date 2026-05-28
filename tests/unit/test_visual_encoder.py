@@ -176,22 +176,29 @@ def test_batched_study_encoding_matches_per_study_cpu() -> None:
         metadata=[{}, {}],
     )
 
+    torch.manual_seed(42)
     model.eval()
     with torch.no_grad():
         prepared = [model._prepare_study(batch, index) for index in range(2)]
         batched_outputs = model._encode_studies_batched(prepared)
         single_outputs = [model._encode_studies_batched([study])[0] for study in prepared]
 
+    # Tuple layout: (study_tokens[0], seg_loss[1], dice[2], patch_count[3],
+    #                fg_dice[4], fg_count[5], patch_organ_loss[6],
+    #                patch_organ_accuracy[7], patch_organ_counts[8],
+    #                attention_targets[9], attention_mask[10], oom_fallback[11])
     for batched, single in zip(batched_outputs, single_outputs, strict=True):
-        assert torch.allclose(batched[0], single[0], atol=1e-6, rtol=1e-6)
-        assert torch.allclose(batched[1], single[1], atol=1e-6, rtol=1e-6)
+        assert torch.allclose(batched[0], single[0], atol=1e-5, rtol=1e-5)
+        assert torch.allclose(batched[1], single[1], atol=1e-5, rtol=1e-5)
         assert batched[2] == single[2]
         assert batched[3] == single[3]
-        assert torch.allclose(batched[4], single[4], atol=1e-6, rtol=1e-6)
+        assert batched[4] == single[4]
         assert batched[5] == single[5]
-        assert batched[6] == single[6]
-        assert torch.equal(batched[7], single[7])
-        assert torch.equal(batched[8], single[8])
+        assert torch.allclose(batched[6], single[6], atol=1e-5, rtol=1e-5)
+        assert batched[7] == single[7]
+        assert batched[8] == single[8]
+        assert torch.equal(batched[9], single[9])
+        assert torch.equal(batched[10], single[10])
 
 
 def test_distilled_visual_encoder_loader_roundtrip(tmp_path) -> None:

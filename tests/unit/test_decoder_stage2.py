@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+from pathlib import Path
+import tempfile
 
 import torch
 
@@ -13,6 +15,7 @@ from organ_seg_clip.decoder.data import (
     collate_decoder_batch,
 )
 from organ_seg_clip.decoder.losses import BinaryDiagnosticLoss
+from organ_seg_clip.decoder.semantic_losses import SemanticDiagnosticLoss
 from organ_seg_clip.training.decoder_engine import _build_eval_dataloader
 
 
@@ -56,7 +59,9 @@ model:
     assert config.model.llm_model_name_or_path == "/tmp/qwen_a"
 
 
-def test_duodenum_maps_to_small_bowel_decoder_label(tmp_path):
+def test_duodenum_not_mapped_to_small_bowel_decoder_label(tmp_path):
+    # Duodenum was removed from CSV_TO_ORGAN_NAME to avoid noisy supervision; CSV
+    # entries for duodenum must not produce a lesion label for Small bowel.
     csv_path = tmp_path / "lesions.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=["Encrypted Accession Number", "number of duodenum lesion instances"])
@@ -90,8 +95,8 @@ model:
     dataset = PerOrganDecoderDataset([sample], feature_store=store, config=config, split="train")
     assert len(dataset) == 1
     assert dataset[0].organ_name == "Small bowel"
-    assert dataset[0].lesion_mask is True
-    assert dataset[0].lesion_label == 1.0
+    assert dataset[0].lesion_mask is False
+    assert dataset[0].lesion_label == 0.0
     assert dataset[0].is_small_bowel is True
 
 
@@ -172,6 +177,220 @@ def test_negative_lesion_penalty_is_nonnegative():
     )
     assert output.pathology_negative_loss.item() >= 0.0
     assert output.loss.item() >= 0.0
+
+
+def test_concept_specific_positive_loss_decreases_with_concept_mass(tmp_path):
+    tokenizer = TinyTokenizer()
+    concept_token = tokenizer("adenoma", add_special_tokens=False)["input_ids"][0]
+    cache_path = _concept_cache(
+        tmp_path,
+        positive_concepts=[{"source_label": "adenoma", "label_type": "subtype", "weight": 1.0, "token_ids": [concept_token]}],
+        negative_concepts=[],
+    )
+    config = load_decoder_config(_minimal_config_path(tmp_path, variant="concept_specific_lexical", lexical_target_cache=cache_path))
+    loss_fn = BinaryDiagnosticLoss(config.diagnostic_loss, tokenizer)
+    vocab_size = max(tokenizer.vocab.values()) + 5
+    labels = torch.tensor([[-100, 3, 4, 1]], dtype=torch.long)
+    low_logits = torch.zeros((1, 4, vocab_size), dtype=torch.float32)
+    high_logits = low_logits.clone()
+    high_logits[..., concept_token] = 8.0
+    low = loss_fn(
+        logits=low_logits,
+        labels=labels,
+        lesion_labels=torch.tensor([1.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    high = loss_fn(
+        logits=high_logits,
+        labels=labels,
+        lesion_labels=torch.tensor([1.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    assert high.pathology_positive_loss < low.pathology_positive_loss
+    assert high.positive_concept_count == 1
+
+
+def test_concept_specific_negative_loss_increases_with_spike(tmp_path):
+    tokenizer = TinyTokenizer()
+    concept_token = tokenizer("mass", add_special_tokens=False)["input_ids"][0]
+    cache_path = _concept_cache(
+        tmp_path,
+        positive_concepts=[],
+        negative_concepts=[{"source_label": "mass", "label_type": "subtype", "weight": 1.0, "token_ids": [concept_token]}],
+    )
+    config = load_decoder_config(_minimal_config_path(tmp_path, variant="concept_specific_lexical", lexical_target_cache=cache_path))
+    loss_fn = BinaryDiagnosticLoss(config.diagnostic_loss, tokenizer)
+    vocab_size = max(tokenizer.vocab.values()) + 5
+    labels = torch.tensor([[-100, 3, 4, 1]], dtype=torch.long)
+    low_logits = torch.zeros((1, 4, vocab_size), dtype=torch.float32)
+    high_logits = low_logits.clone()
+    high_logits[:, 2, concept_token] = 8.0
+    low = loss_fn(
+        logits=low_logits,
+        labels=labels,
+        lesion_labels=torch.tensor([0.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    high = loss_fn(
+        logits=high_logits,
+        labels=labels,
+        lesion_labels=torch.tensor([0.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    assert high.pathology_negative_loss > low.pathology_negative_loss
+    assert high.negative_concept_count == 1
+
+
+def test_concept_specific_averages_multiple_positive_concepts(tmp_path):
+    tokenizer = TinyTokenizer()
+    adenoma = tokenizer("adenoma", add_special_tokens=False)["input_ids"][0]
+    thickening = tokenizer("thickening", add_special_tokens=False)["input_ids"][0]
+    cache_path = _concept_cache(
+        tmp_path,
+        positive_concepts=[
+            {"source_label": "adenoma", "label_type": "subtype", "weight": 1.0, "token_ids": [adenoma]},
+            {"source_label": "thickening", "label_type": "subtype", "weight": 1.0, "token_ids": [thickening]},
+        ],
+        negative_concepts=[],
+    )
+    config = load_decoder_config(_minimal_config_path(tmp_path, variant="concept_specific_lexical", lexical_target_cache=cache_path))
+    loss_fn = BinaryDiagnosticLoss(config.diagnostic_loss, tokenizer)
+    vocab_size = max(tokenizer.vocab.values()) + 5
+    logits = torch.zeros((1, 4, vocab_size), dtype=torch.float32)
+    logits[..., adenoma] = 8.0
+    output = loss_fn(
+        logits=logits,
+        labels=torch.tensor([[-100, 3, 4, 1]], dtype=torch.long),
+        lesion_labels=torch.tensor([1.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    assert output.positive_concept_count == 2
+    assert output.pathology_positive_loss.item() > 0.0
+
+
+def test_concept_specific_concept_weight_scales_loss(tmp_path):
+    # A concept with weight=2.0 should produce exactly 2× the weighted loss of weight=1.0,
+    # because the weighted mean divides by sum(weights) = the single concept weight.
+    tokenizer = TinyTokenizer()
+    concept_token = tokenizer("adenoma", add_special_tokens=False)["input_ids"][0]
+    (tmp_path / "low").mkdir()
+    (tmp_path / "high").mkdir()
+    (tmp_path / "cfg_low").mkdir()
+    (tmp_path / "cfg_high").mkdir()
+    cache_low = _concept_cache(
+        tmp_path / "low",
+        positive_concepts=[{"source_label": "adenoma", "label_type": "subtype", "weight": 1.0, "token_ids": [concept_token]}],
+        negative_concepts=[],
+    )
+    cache_high = _concept_cache(
+        tmp_path / "high",
+        positive_concepts=[{"source_label": "adenoma", "label_type": "subtype", "weight": 2.0, "token_ids": [concept_token]}],
+        negative_concepts=[],
+    )
+    vocab_size = max(tokenizer.vocab.values()) + 5
+    logits = torch.zeros((1, 4, vocab_size), dtype=torch.float32)
+    labels = torch.tensor([[-100, 3, 4, 1]], dtype=torch.long)
+    kwargs = dict(
+        logits=logits,
+        labels=labels,
+        lesion_labels=torch.tensor([1.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    config_low = load_decoder_config(_minimal_config_path(tmp_path / "cfg_low", variant="concept_specific_lexical", lexical_target_cache=cache_low))
+    config_high = load_decoder_config(_minimal_config_path(tmp_path / "cfg_high", variant="concept_specific_lexical", lexical_target_cache=cache_high))
+    out_low = BinaryDiagnosticLoss(config_low.diagnostic_loss, tokenizer)(**kwargs)
+    out_high = BinaryDiagnosticLoss(config_high.diagnostic_loss, tokenizer)(**kwargs)
+    # weighted_mean({loss * w}) / sum(w) is invariant to scaling of a single concept weight,
+    # so both should produce the same positive loss value.
+    assert abs(out_low.pathology_positive_loss.item() - out_high.pathology_positive_loss.item()) < 1e-5
+
+
+def test_concept_specific_sample_weight_scales_loss(tmp_path):
+    tokenizer = TinyTokenizer()
+    concept_token = tokenizer("adenoma", add_special_tokens=False)["input_ids"][0]
+    (tmp_path / "low").mkdir()
+    (tmp_path / "high").mkdir()
+    (tmp_path / "cfg_low").mkdir()
+    (tmp_path / "cfg_high").mkdir()
+    cache_low = _concept_cache(
+        tmp_path / "low",
+        positive_concepts=[{"source_label": "adenoma", "label_type": "subtype", "weight": 1.0, "token_ids": [concept_token]}],
+        negative_concepts=[],
+        sample_weight=0.5,
+    )
+    cache_high = _concept_cache(
+        tmp_path / "high",
+        positive_concepts=[{"source_label": "adenoma", "label_type": "subtype", "weight": 1.0, "token_ids": [concept_token]}],
+        negative_concepts=[],
+        sample_weight=1.0,
+    )
+    vocab_size = max(tokenizer.vocab.values()) + 5
+    logits = torch.zeros((1, 4, vocab_size), dtype=torch.float32)
+    labels = torch.tensor([[-100, 3, 4, 1]], dtype=torch.long)
+    kwargs = dict(
+        logits=logits,
+        labels=labels,
+        lesion_labels=torch.tensor([1.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    config_low = load_decoder_config(_minimal_config_path(tmp_path / "cfg_low", variant="concept_specific_lexical", lexical_target_cache=cache_low))
+    config_high = load_decoder_config(_minimal_config_path(tmp_path / "cfg_high", variant="concept_specific_lexical", lexical_target_cache=cache_high))
+    out_low = BinaryDiagnosticLoss(config_low.diagnostic_loss, tokenizer)(**kwargs)
+    out_high = BinaryDiagnosticLoss(config_high.diagnostic_loss, tokenizer)(**kwargs)
+    # raw_loss = mean(sample_weight * per_concept_loss); sample_weight=0.5 vs 1.0 → 2× ratio
+    assert abs(out_high.raw_loss.item() - 2.0 * out_low.raw_loss.item()) < 1e-5
+
+
+def test_concept_specific_empty_token_set_skipped_no_nan(tmp_path):
+    tokenizer = TinyTokenizer()
+    real_token = tokenizer("adenoma", add_special_tokens=False)["input_ids"][0]
+    cache_path = _concept_cache(
+        tmp_path,
+        positive_concepts=[
+            {"source_label": "empty", "label_type": "subtype", "weight": 1.0, "token_ids": []},
+            {"source_label": "adenoma", "label_type": "subtype", "weight": 1.0, "token_ids": [real_token]},
+        ],
+        negative_concepts=[
+            {"source_label": "empty_neg", "label_type": "subtype", "weight": 1.0, "token_ids": []},
+        ],
+    )
+    config = load_decoder_config(_minimal_config_path(tmp_path, variant="concept_specific_lexical", lexical_target_cache=cache_path))
+    loss_fn = BinaryDiagnosticLoss(config.diagnostic_loss, tokenizer)
+    vocab_size = max(tokenizer.vocab.values()) + 5
+    logits = torch.zeros((1, 4, vocab_size), dtype=torch.float32)
+    output = loss_fn(
+        logits=logits,
+        labels=torch.tensor([[-100, 3, 4, 1]], dtype=torch.long),
+        lesion_labels=torch.tensor([1.0]),
+        lesion_mask=torch.tensor([True]),
+        small_bowel_mask=torch.tensor([False]),
+        target_texts=["Adenoma."],
+        organ_names=["Liver"],
+    )
+    assert not output.loss.isnan()
+    assert output.positive_concept_count == 1  # empty skipped, only real token counted
+    assert output.negative_concept_count == 0  # empty neg skipped
 
 
 def test_eval_dataloader_uses_seeded_val_subset(tmp_path):
@@ -316,6 +535,149 @@ model:
     assert len(val_dataset) == 2
 
 
+def test_semantic_targets_overlay_into_decoder_examples(tmp_path):
+    semantic_path = tmp_path / "semantic.jsonl"
+    semantic_path.write_text(
+        "\n".join(
+            [
+                __import__("json").dumps(
+                    {
+                        "organ": "Liver",
+                        "raw_text": "Mass in liver.",
+                        "normality": "abnormal",
+                        "polarity": "positive",
+                        "certainty": "definite",
+                        "primary_subtype": "liver_mass",
+                        "secondary_subtypes": ["liver_steatosis"],
+                        "confidence": 0.8,
+                        "decision_status": "accepted",
+                    }
+                ),
+                __import__("json").dumps(
+                    {
+                        "organ": "Liver",
+                        "raw_text": "Normal.",
+                        "normality": "normal",
+                        "polarity": "negative",
+                        "certainty": "definite",
+                        "primary_subtype": "liver_normal",
+                        "secondary_subtypes": [],
+                        "confidence": 0.9,
+                        "decision_status": "accepted_provisional",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "decoder.yaml"
+    config_path.write_text(
+        f"""
+paths:
+  dataset_root: /tmp/dataset
+  visual_encoder_checkpoint: /tmp/visual.pt
+data:
+  organ_names: [Liver]
+model:
+  llm_model_name_or_path: /tmp/qwen
+semantic_loss:
+  enabled: true
+  target_jsonl_paths: [{semantic_path}]
+  accepted_sample_weight: 1.0
+  provisional_sample_weight: 0.5
+""",
+        encoding="utf-8",
+    )
+    config = load_decoder_config(config_path)
+    samples = [
+        WholeStudySample(
+            study_id="AC_MASS",
+            split="train",
+            scan_path=tmp_path / "mass_scan.nii.gz",
+            segmentation_path=tmp_path / "mass_seg.nii.gz",
+            report_text="",
+            organ_text_lookup={"Liver": "Mass in liver."},
+            organ_label_lookup={"Liver": 1},
+        ),
+        WholeStudySample(
+            study_id="AC_NORMAL",
+            split="train",
+            scan_path=tmp_path / "normal_scan.nii.gz",
+            segmentation_path=tmp_path / "normal_seg.nii.gz",
+            report_text="",
+            organ_text_lookup={"Liver": "Normal."},
+            organ_label_lookup={"Liver": 0},
+        ),
+    ]
+    store = DecoderFeatureStore(
+        organ_names=("Liver",),
+        visual_dim=4,
+        records={
+            "AC_MASS": _feature_store("AC_MASS", organ_count=1).records["AC_MASS"],
+            "AC_NORMAL": _feature_store("AC_NORMAL", organ_count=1).records["AC_NORMAL"],
+        },
+        metadata={},
+    )
+    dataset = PerOrganDecoderDataset(samples, feature_store=store, config=config, split="train")
+    assert len(dataset) == 2
+    examples = {example.study_id: example for example in dataset}
+    assert examples["AC_MASS"].semantic_available is True
+    assert examples["AC_MASS"].semantic_weight == 0.8
+    assert len(examples["AC_MASS"].semantic_active_subtype_indices) == 2
+    assert examples["AC_NORMAL"].semantic_available is True
+    assert examples["AC_NORMAL"].semantic_weight == 0.45
+
+
+def test_semantic_loss_variants_return_nonnegative_losses():
+    pooled_hidden = torch.randn(2, 4)
+    available = torch.tensor([True, True])
+    weights = torch.tensor([1.0, 0.5], dtype=torch.float32)
+    statuses = ["accepted", "accepted_provisional"]
+    normality_targets = torch.tensor([1, 0], dtype=torch.long)
+    polarity_targets = torch.tensor([0, 1], dtype=torch.long)
+    primary_targets = torch.tensor([0, 1], dtype=torch.long)
+    subtype_targets = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32)
+    secondary_targets = torch.tensor([[0.0, 0.0], [0.0, 0.0]], dtype=torch.float32)
+    allowed_mask = torch.tensor([[True, True], [True, True]])
+    family_targets = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32)
+    allowed_family_mask = torch.tensor([[True, True], [True, True]])
+    config = load_decoder_config(_minimal_config_path(semantic_variant="minimal", semantic_enabled=True))
+    minimal = SemanticDiagnosticLoss(config.semantic_loss, hidden_size=4, subtype_count=2, family_count=2)
+    minimal_output = minimal(
+        pooled_hidden=pooled_hidden,
+        semantic_available=available,
+        semantic_weights=weights,
+        semantic_statuses=statuses,
+        semantic_normality_targets=normality_targets,
+        semantic_polarity_targets=polarity_targets,
+        semantic_primary_subtype_targets=primary_targets,
+        semantic_subtype_targets=subtype_targets,
+        semantic_secondary_subtype_targets=secondary_targets,
+        semantic_allowed_subtype_mask=allowed_mask,
+        semantic_family_targets=family_targets,
+        semantic_allowed_family_mask=allowed_family_mask,
+    )
+    assert minimal_output.loss.item() >= 0.0
+    config_ps = load_decoder_config(_minimal_config_path(semantic_variant="primary_secondary", semantic_enabled=True))
+    primary_secondary = SemanticDiagnosticLoss(config_ps.semantic_loss, hidden_size=4, subtype_count=2, family_count=2)
+    ps_output = primary_secondary(
+        pooled_hidden=pooled_hidden,
+        semantic_available=available,
+        semantic_weights=weights,
+        semantic_statuses=statuses,
+        semantic_normality_targets=normality_targets,
+        semantic_polarity_targets=polarity_targets,
+        semantic_primary_subtype_targets=primary_targets,
+        semantic_subtype_targets=subtype_targets,
+        semantic_secondary_subtype_targets=secondary_targets,
+        semantic_allowed_subtype_mask=allowed_mask,
+        semantic_family_targets=family_targets,
+        semantic_allowed_family_mask=allowed_family_mask,
+    )
+    assert ps_output.loss.item() >= 0.0
+
+
 def _feature_store(study_id: str, organ_count: int = 11) -> DecoderFeatureStore:
     record = DecoderFeatureRecord(
         study_id=study_id,
@@ -348,13 +710,45 @@ def _example(target: str, lesion_label: float):
     return PerOrganDecoderDataset([sample], feature_store=store, config=config, split="train")[0]
 
 
-def _minimal_config_path():
-    from pathlib import Path
-    import tempfile
+def _concept_cache(
+    tmp_path: Path,
+    *,
+    positive_concepts: list[dict[str, object]],
+    negative_concepts: list[dict[str, object]],
+    sample_weight: float = 1.0,
+) -> Path:
+    path = tmp_path / "concept_targets.pt"
+    torch.save(
+        {
+            "tokenizer_name": "tiny",
+            "target_format": "concept_specific_lexical_v1",
+            "rows": [
+                {
+                    "key": ("Liver", "adenoma."),
+                    "positive_concepts": positive_concepts,
+                    "negative_concepts": negative_concepts,
+                    "sample_weight": sample_weight,
+                    "review_required": False,
+                }
+            ],
+        },
+        path,
+    )
+    return path
 
-    path = Path(tempfile.mkdtemp()) / "decoder.yaml"
+
+def _minimal_config_path(
+    tmp_path: Path | None = None,
+    *,
+    variant: str = "binary",
+    lexical_target_cache: Path | None = None,
+    semantic_variant: str = "minimal",
+    semantic_enabled: bool = False,
+):
+    path = (tmp_path or Path(tempfile.mkdtemp())) / "decoder.yaml"
+    lexical_cache_line = "" if lexical_target_cache is None else f"  lexical_target_cache: {lexical_target_cache}\n"
     path.write_text(
-        """
+        f"""
 paths:
   dataset_root: /tmp/dataset
   visual_encoder_checkpoint: /tmp/visual.pt
@@ -363,8 +757,13 @@ data:
 model:
   llm_model_name_or_path: /tmp/qwen
 diagnostic_loss:
+  variant: {variant}
+{lexical_cache_line}  negative_temperature: 8.0
   pathology_words: [lesion]
   normal_words: [normal, unremarkable]
+semantic_loss:
+  enabled: {str(semantic_enabled).lower()}
+  variant: {semantic_variant}
 """,
         encoding="utf-8",
     )

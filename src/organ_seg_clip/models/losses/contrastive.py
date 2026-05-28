@@ -115,13 +115,7 @@ def _soft_cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Te
 
 
 def _build_positive_mask(labels: Sequence[str], organ_ids: Sequence[int], *, device: torch.device) -> torch.Tensor:
-    pair_count = len(labels)
-    mask = torch.zeros((pair_count, pair_count), device=device, dtype=torch.bool)
-    for row_index, (label, organ_id) in enumerate(zip(labels, organ_ids)):
-        for col_index, (other_label, other_organ_id) in enumerate(zip(labels, organ_ids)):
-            if organ_id == other_organ_id and label == other_label:
-                mask[row_index, col_index] = True
-    return mask
+    return _build_positive_mask_against_global(labels, organ_ids, labels, organ_ids, device=device)
 
 
 def _build_positive_mask_against_global(
@@ -132,12 +126,16 @@ def _build_positive_mask_against_global(
     *,
     device: torch.device,
 ) -> torch.Tensor:
-    mask = torch.zeros((len(local_labels), len(global_labels)), device=device, dtype=torch.bool)
-    for row_index, (label, organ_id) in enumerate(zip(local_labels, local_organ_ids)):
-        for col_index, (other_label, other_organ_id) in enumerate(zip(global_labels, global_organ_ids)):
-            if organ_id == other_organ_id and label == other_label:
-                mask[row_index, col_index] = True
-    return mask
+    if len(local_labels) == 0 or len(global_labels) == 0:
+        return torch.zeros((len(local_labels), len(global_labels)), device=device, dtype=torch.bool)
+    local_organ_t = torch.tensor(list(local_organ_ids), device=device, dtype=torch.long)
+    global_organ_t = torch.tensor(list(global_organ_ids), device=device, dtype=torch.long)
+    same_organ = local_organ_t.unsqueeze(1) == global_organ_t.unsqueeze(0)
+    label_map = {label: idx for idx, label in enumerate(dict.fromkeys(list(local_labels) + list(global_labels)))}
+    local_label_t = torch.tensor([label_map[l] for l in local_labels], device=device, dtype=torch.long)
+    global_label_t = torch.tensor([label_map[l] for l in global_labels], device=device, dtype=torch.long)
+    same_label = local_label_t.unsqueeze(1) == global_label_t.unsqueeze(0)
+    return same_organ & same_label
 
 
 def _normalize_text_label(text: str) -> str:

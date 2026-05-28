@@ -25,6 +25,7 @@ from ..utils.io import dump_json, ensure_dir
 from ..utils.seeding import set_seed
 from .checkpointing import load_checkpoint, load_pretrained_submodule, save_checkpoint
 from .run_logging import ExperimentLogger
+from ..models.losses.contrastive import _normalize_text_label as _normalize_finding_label
 
 
 def run_encoder_training(config: EncoderConfig) -> dict[str, Any]:
@@ -63,6 +64,20 @@ def run_encoder_training(config: EncoderConfig) -> dict[str, Any]:
         resume_epoch = int(payload.get("epoch", 0))
         resume_step = int(payload.get("step") or 0)
         start_epoch = resume_epoch if resume_step > 0 else resume_epoch + 1
+    elif str(config.training.warm_start_from or "").strip():
+        if float(config.loss.organ_alignment_weight or 0.0) == 0.0 and is_main_process():
+            print(
+                "[warning] warm_start_from is set but organ_alignment_weight=0 — "
+                "warm-starting into a stage1 run is unusual.",
+                flush=True,
+            )
+        load_checkpoint(
+            config.training.warm_start_from,
+            model=model,
+            map_location=device,
+            strict=False,
+            restore_rng=False,
+        )
     elif str(config.model.segmamba.pretrained_checkpoint_path).strip():
         load_pretrained_submodule(
             config.model.segmamba.pretrained_checkpoint_path,
@@ -92,6 +107,8 @@ def run_encoder_training(config: EncoderConfig) -> dict[str, Any]:
     train_steps_seen_payload = payload.get("train_steps_seen", 0) if config.training.resume_from else 0
     experiment_logger.set_train_steps_seen(int(train_steps_seen_payload))
     last_val_metrics: dict[str, float] | None = None
+    epochs_without_improvement = 0
+    early_stopping_patience = int(config.training.early_stopping_patience)
     for epoch in range(start_epoch, config.training.epochs + 1):
         if distributed:
             _set_sampler_epoch(train_loader, epoch)
@@ -251,7 +268,36 @@ def run_encoder_training(config: EncoderConfig) -> dict[str, Any]:
                         "wandb_run_id": experiment_logger.run_id(),
                     },
                 )
+            _flush_text_embedding_cache(model)
         barrier()
+        if early_stopping_patience > 0:
+            if run_full_validation:
+                metric_name = _normalize_best_metric_name(config.training.best_checkpoint_metric)
+                candidate = float(val_metrics.get(metric_name, val_metrics.get("total_loss", 0.0)))
+                improved = best_metric is None or _is_better_checkpoint_metric(metric_name, candidate, best_metric)
+                if improved:
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+                if is_main_process() and epochs_without_improvement > 0:
+                    print(
+                        f"[early stopping] epochs_without_improvement={epochs_without_improvement}/{early_stopping_patience}",
+                        flush=True,
+                    )
+            stop_tensor = torch.tensor(
+                1.0 if (epochs_without_improvement >= early_stopping_patience and run_full_validation) else 0.0,
+                device=device,
+                dtype=torch.float32,
+            )
+            if is_distributed():
+                torch.distributed.all_reduce(stop_tensor, op=torch.distributed.ReduceOp.MAX)
+            if stop_tensor.item() >= 1.0:
+                if is_main_process():
+                    print(
+                        f"[early stopping] stopping at epoch {epoch} after {epochs_without_improvement} epochs without improvement.",
+                        flush=True,
+                    )
+                break
         if epoch == start_epoch:
             resume_step = 0
     summary = {
@@ -270,6 +316,7 @@ def _build_optimizer(model: torch.nn.Module, config: EncoderConfig) -> torch.opt
     text_lr = base_lr if config.training.text_learning_rate is None else float(config.training.text_learning_rate)
     alignment_lr = config.training.alignment_parameter_learning_rate
     weight_decay = float(config.training.weight_decay)
+    patch_encoder_scale = float(config.training.patch_encoder_learning_rate_scale)
     text_module = getattr(model, "text_encoder", None)
     text_backbone = None if text_module is None else getattr(text_module, "encoder", None)
     text_backbone_params = [] if text_backbone is None else [parameter for parameter in text_backbone.parameters() if parameter.requires_grad]
@@ -281,12 +328,29 @@ def _build_optimizer(model: torch.nn.Module, config: EncoderConfig) -> torch.opt
         if parameter.requires_grad and alignment_lr is not None and any(name == target or name.endswith(f".{target}") for target in alignment_names)
     ]
     alignment_param_ids = {id(parameter) for parameter in alignment_params}
+    _backbone_prefixes = ("patch_encoder.", "patch_segmentation_head.")
+    backbone_params = [
+        parameter
+        for name, parameter in model.named_parameters()
+        if parameter.requires_grad
+        and any(name.startswith(prefix) for prefix in _backbone_prefixes)
+        and id(parameter) not in alignment_param_ids
+    ]
+    backbone_param_ids = {id(parameter) for parameter in backbone_params}
     other_params = [
         parameter
         for parameter in model.parameters()
-        if parameter.requires_grad and id(parameter) not in text_param_ids and id(parameter) not in alignment_param_ids
+        if parameter.requires_grad
+        and id(parameter) not in text_param_ids
+        and id(parameter) not in alignment_param_ids
+        and id(parameter) not in backbone_param_ids
     ]
     param_groups: list[dict[str, Any]] = []
+    if backbone_params and patch_encoder_scale != 1.0:
+        backbone_lr = base_lr * patch_encoder_scale
+        param_groups.append({"params": backbone_params, "lr": backbone_lr, "weight_decay": weight_decay, "name": "patch_encoder"})
+    elif backbone_params:
+        other_params = backbone_params + other_params
     if other_params:
         param_groups.append({"params": other_params, "lr": base_lr, "weight_decay": weight_decay, "name": "main"})
     if text_backbone_params:
@@ -359,7 +423,7 @@ def _build_dataloaders(config: EncoderConfig) -> tuple[DataLoader, DataLoader, D
         BatchSampler(
             train_index_sampler,
             batch_size=int(config.training.batch_size),
-            drop_last=False,
+            drop_last=is_distributed(),
         )
     )
     train_loader = DataLoader(train_dataset, batch_sampler=train_batch_sampler, **common_loader_kwargs)
@@ -411,7 +475,7 @@ def _build_organ_finding_counts(samples: list[Any], *, organ_names: tuple[str, .
             raw_text = organ_text_lookup.get(organ_name)
             if not isinstance(raw_text, str):
                 continue
-            normalized = " ".join(raw_text.strip().lower().split())
+            normalized = _normalize_finding_label(raw_text)
             if not normalized:
                 continue
             counts[(int(organ_index), normalized)] += 1
@@ -504,6 +568,7 @@ def _run_epoch(
             scalar_metrics["patches_per_study_mean"] = float(outputs.patches_per_study_mean)
             scalar_metrics["patches_per_study_max"] = float(outputs.patches_per_study_max)
             scalar_metrics["segmentation_oom_fallback_count"] = float(outputs.segmentation_oom_fallback_count)
+            scalar_metrics["segmentation_foreground_patch_count"] = float(outputs.segmentation_foreground_patch_count)
             for group_index, group in enumerate(optimizer.param_groups if optimizer is not None else ()):
                 group_name = str(group.get("name", f"group_{group_index}"))
                 scalar_metrics[f"lr_{group_name}"] = float(group.get("lr", 0.0))
@@ -556,7 +621,7 @@ def _run_epoch(
                 )
                 print(f"[epoch {epoch}] step={step_index} saved_step_checkpoint=last_step.pt", flush=True)
             if is_main_process() and should_log_step:
-                if experiment_logger is not None:
+                if training and experiment_logger is not None:
                     experiment_logger.log_step(
                         run_label=run_label,
                         metrics=scalar_metrics,
@@ -568,6 +633,7 @@ def _run_epoch(
                 f"organ_align={scalar_metrics['organ_alignment_loss']:.4f} "
                 f"seg_loss={scalar_metrics['segmentation_loss']:.4f} "
                 f"seg_dice={scalar_metrics['segmentation_dice']:.4f} "
+                f"seg_fg_dice={scalar_metrics.get('segmentation_foreground_dice', 0.0):.4f} "
                 f"diag_loss={scalar_metrics['diagnostic_loss']:.4f} "
                 f"diag_acc={scalar_metrics['diagnostic_accuracy']:.4f} "
                 f"report_align={scalar_metrics['report_alignment_loss']:.4f} "
@@ -735,6 +801,7 @@ def _build_metric_weights(batch: EncoderBatch, outputs: OrganSegOutput) -> dict[
         "lesion_global_accuracy": lesion_global_count,
         "lesion_organ_accuracy": lesion_organ_count,
         "segmentation_dice": segmentation_count,
+        "segmentation_foreground_dice": float(max(outputs.segmentation_foreground_patch_count, 1)),
         "patches_per_batch_total": batch_weight,
         "patches_per_study_mean": batch_weight,
         "patches_per_study_max": batch_weight,
@@ -835,6 +902,13 @@ class _ResumableBatchSampler:
 
     def __len__(self) -> int:
         return max(len(self.batch_sampler) - self._skip_batches, 0)
+
+
+def _flush_text_embedding_cache(model: torch.nn.Module) -> None:
+    underlying = model.module if hasattr(model, "module") else model
+    text_encoder = getattr(underlying, "text_encoder", None)
+    if text_encoder is not None and hasattr(text_encoder, "save_disk_cache"):
+        text_encoder.save_disk_cache()
 
 
 def _is_better_checkpoint_metric(metric_name: str, candidate: float, current_best: float) -> bool:

@@ -38,9 +38,7 @@ class MerlinWholeStudyDataset(Dataset):
         self.samples = list(samples)
         self.config = config
         self.organ_names = tuple(config.data.organ_names)
-        lesion_csv = Path(config.data.lesion_metadata_csv).expanduser() if config.data.lesion_metadata_csv else None
-        if lesion_csv is not None and not lesion_csv.is_absolute():
-            lesion_csv = Path(config.config_dir) / lesion_csv
+        lesion_csv = config.resolved_lesion_metadata_csv
         self.lesion_lookup = LesionMetadataLookup(lesion_csv, organ_names=self.organ_names)
 
     def __len__(self) -> int:

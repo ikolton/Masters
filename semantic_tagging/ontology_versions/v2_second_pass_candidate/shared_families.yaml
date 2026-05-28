@@ -1,0 +1,22 @@
+version: v2_second_pass_candidate
+families:
+  normal:
+    description: True or default normal organ state.
+  absent_postop:
+    description: Organ absent or surgically altered/postoperative state.
+  focal_lesion:
+    description: Focal discrete lesion or mass-like abnormality.
+  cystic_lesion:
+    description: Cystic lesion family including benign cyst patterns and IPMN-like cystic findings.
+  inflammatory_thickening:
+    description: Wall thickening or diffuse inflammatory-appearing change.
+  dilation_obstruction:
+    description: Dilation, obstruction, or caliber abnormality family.
+  calcification:
+    description: Calcification-focused abnormality family.
+  steatosis_fatty_change:
+    description: Fatty change/parenchymal steatosis family.
+  enlargement:
+    description: Organ enlargement family.
+  other_abnormal:
+    description: Organ-specific abnormal findings that do not fit another stable family.

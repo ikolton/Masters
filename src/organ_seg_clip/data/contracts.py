@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 from ..config.schemas import DEFAULT_ORGANS
 
-DEFAULT_METADATA_FILES: tuple[str, ...] = ("train/combined.json", "val/combined.json")
+DEFAULT_SPLITS: tuple[str, ...] = ("train", "val", "test")
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,8 @@ class StudyMetadata:
     cleaned_report: str
     findings: dict[str, Any]
     labels: dict[str, Any]
+    scan_path: Path | None = None
+    segmentation_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ class MerlinConvertedDataset:
         self.layout_root = self._resolve_layout_root(self.dataset_root)
         self.verify_metadata = bool(verify_metadata)
         self.exclusions = ExclusionLog()
+        self._metadata_ids_by_split: dict[str, set[str]] = {}
         self.metadata_by_study_id = self._load_metadata_lookup()
         self._usable_studies_by_split = self._build_usable_studies()
 
@@ -109,49 +112,56 @@ class MerlinConvertedDataset:
 
     @staticmethod
     def _resolve_layout_root(dataset_root: Path) -> Path:
-        direct_train = dataset_root / "train"
-        direct_val = dataset_root / "val"
-        if direct_train.is_dir() and direct_val.is_dir():
+        if any((dataset_root / split / "combined.json").is_file() for split in DEFAULT_SPLITS):
             return dataset_root
 
         nested_root = dataset_root / "dataset_split"
-        nested_train = nested_root / "train"
-        nested_val = nested_root / "val"
-        if nested_train.is_dir() and nested_val.is_dir():
+        if any((nested_root / split / "combined.json").is_file() for split in DEFAULT_SPLITS):
             return nested_root
 
         raise MerlinDatasetError(
-            "Could not locate dataset split directories. Expected either <dataset_root>/train and <dataset_root>/val "
-            "or <dataset_root>/dataset_split/train and <dataset_root>/dataset_split/val. "
+            "Could not locate dataset split metadata. Expected at least one combined.json under "
+            "<dataset_root>/{train,val,test}/ or <dataset_root>/dataset_split/{train,val,test}/. "
             f"Got dataset_root={dataset_root}."
         )
 
     def _load_metadata_lookup(self) -> dict[str, StudyMetadata]:
-        manifests = [self.layout_root / rel_path for rel_path in DEFAULT_METADATA_FILES]
-        for manifest_path in manifests:
-            if not manifest_path.is_file():
-                raise MerlinDatasetError(f"Missing metadata file: {manifest_path}")
-        payloads = [self._read_json_list(path) for path in manifests]
-        if self.verify_metadata and payloads[0] != payloads[1]:
+        manifests = self._metadata_manifest_paths()
+        if not manifests:
+            raise MerlinDatasetError(f"No split combined.json files found under {self.layout_root}")
+        payloads_by_split = {split: self._read_json_list(path) for split, path in manifests.items()}
+        if self.verify_metadata and {"train", "val"}.issubset(payloads_by_split) and payloads_by_split["train"] != payloads_by_split["val"]:
             raise MerlinDatasetError("Expected train/val combined.json files to contain identical records.")
 
         metadata_by_id: dict[str, StudyMetadata] = {}
-        for payload in payloads:
+        for split, payload in payloads_by_split.items():
+            split_ids: set[str] = set()
             for raw_record in payload:
                 metadata = self._validate_metadata_record(raw_record, strict=self.verify_metadata)
+                split_ids.add(metadata.study_id)
                 existing = metadata_by_id.get(metadata.study_id)
                 if existing is not None and self.verify_metadata and existing != metadata:
                     raise MerlinDatasetError(f"Conflicting metadata record for study {metadata.study_id}.")
                 metadata_by_id[metadata.study_id] = metadata
+            self._metadata_ids_by_split[split] = split_ids
         return metadata_by_id
 
+    def _metadata_manifest_paths(self) -> dict[str, Path]:
+        return {
+            split: self.layout_root / split / "combined.json"
+            for split in DEFAULT_SPLITS
+            if (self.layout_root / split / "combined.json").is_file()
+        }
+
     def _build_usable_studies(self) -> dict[str, list[_UsableStudy]]:
-        usable: dict[str, list[_UsableStudy]] = {"train": [], "val": []}
+        split_names = tuple(split for split in DEFAULT_SPLITS if (self.layout_root / split).is_dir())
+        usable: dict[str, list[_UsableStudy]] = {split: [] for split in split_names}
         seen_studies: set[str] = set()
-        for split in ("train", "val"):
+        for split in split_names:
             split_dir = self.layout_root / split
             if not split_dir.is_dir():
                 raise MerlinDatasetError(f"Missing split directory: {split_dir}")
+            split_seen: set[str] = set()
             with os.scandir(split_dir) as case_iter:
                 for case_entry in case_iter:
                     if not case_entry.is_dir():
@@ -192,6 +202,40 @@ class MerlinConvertedDataset:
                             metadata=metadata,
                         )
                     )
+                    split_seen.add(study_id)
+            for study_id in sorted(self._metadata_ids_by_split.get(split, set())):
+                if study_id in split_seen:
+                    continue
+                metadata = self.metadata_by_study_id.get(study_id)
+                if metadata is None:
+                    self.exclusions.add("manifest_study_missing_metadata", f"{split}:{study_id}")
+                    continue
+                if metadata.scan_path is None or metadata.segmentation_path is None:
+                    continue
+                if study_id in seen_studies:
+                    self.exclusions.add("duplicate_split_membership", study_id)
+                    continue
+                seen_studies.add(study_id)
+                if not metadata.scan_path.is_file():
+                    self.exclusions.add("missing_scan_file", f"{split}:{study_id}")
+                    continue
+                if not metadata.segmentation_path.is_file():
+                    self.exclusions.add("missing_segmentation_file", f"{split}:{study_id}")
+                    continue
+                usable[split].append(
+                    _UsableStudy(
+                        study_id=study_id,
+                        split=split,
+                        scan_path=metadata.scan_path,
+                        segmentation_path=metadata.segmentation_path,
+                        metadata=metadata,
+                    )
+                )
+        if self.exclusions.counts:
+            summary = ", ".join(f"{reason}={count}" for reason, count in sorted(self.exclusions.counts.items()))
+            print(f"[dataset] excluded studies: {summary}", flush=True)
+            for reason, examples in self.exclusions.examples.items():
+                print(f"[dataset]   {reason}: {examples}", flush=True)
         return usable
 
     @staticmethod
@@ -210,6 +254,8 @@ class MerlinConvertedDataset:
         cleaned_report = raw_record.get("cleaned_report")
         findings = raw_record.get("findings")
         labels = raw_record.get("labels")
+        scan_path = raw_record.get("scan_path")
+        segmentation_path = raw_record.get("segmentation_path")
         if not isinstance(study_id, str) or not study_id:
             raise MerlinDatasetError("Invalid or missing study_id.")
         if not strict:
@@ -222,11 +268,19 @@ class MerlinConvertedDataset:
             raise MerlinDatasetError(f"Invalid findings table for study {study_id}")
         if not isinstance(labels, dict):
             raise MerlinDatasetError(f"Invalid labels table for study {study_id}")
+        resolved_scan_path = Path(scan_path).expanduser().resolve() if isinstance(scan_path, str) and scan_path.strip() else None
+        resolved_segmentation_path = (
+            Path(segmentation_path).expanduser().resolve()
+            if isinstance(segmentation_path, str) and segmentation_path.strip()
+            else None
+        )
         return StudyMetadata(
             study_id=study_id,
             cleaned_report=cleaned_report,
             findings=findings,
             labels=labels,
+            scan_path=resolved_scan_path,
+            segmentation_path=resolved_segmentation_path,
         )
 
 

@@ -1,0 +1,44 @@
+organ: Prostate
+maturity_tier: tier_3
+allow_online_expansion: true
+subtypes:
+  prostate_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - Unremarkable
+      - The prostate is normal in size with no enlargement or focal nodules.
+      - Normal.
+    contrast_examples:
+      - Prostatomegaly.
+      - Prostatic calcifications.
+    maturity_tier: tier_3
+  prostate_absent_postop:
+    family: absent_postop
+    canonical_label: surgically absent
+    positive_examples:
+      - Surgically absent.
+      - The prostate is surgically absent.
+    contrast_examples:
+      - The prostate is normal in size with no enlargement or focal nodules.
+    maturity_tier: tier_3
+  prostate_enlargement:
+    family: enlargement
+    canonical_label: prostate enlargement
+    positive_examples:
+      - Prostatomegaly.
+      - Enlarged prostate measuring 5 cm in transverse dimension.
+      - The prostate is enlarged and measures 5.4 cm.
+    contrast_examples:
+      - Prostatic calcifications.
+      - The prostate is normal in size with no enlargement or focal nodules.
+    maturity_tier: tier_3
+  prostate_calcifications:
+    family: calcification
+    canonical_label: prostatic calcifications
+    positive_examples:
+      - Prostatic calcifications.
+    contrast_examples:
+      - Prostatomegaly.
+      - The prostate is normal in size with no enlargement or focal nodules.
+    maturity_tier: tier_2

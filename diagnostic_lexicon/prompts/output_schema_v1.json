@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "required": [
+    "organ",
+    "subtype",
+    "family",
+    "canonical_label",
+    "positive_lexicalizations",
+    "negative_lexicalizations",
+    "uncertain_lexicalizations",
+    "confusers",
+    "discouraged_lexicalizations",
+    "confidence",
+    "notes"
+  ],
+  "properties": {
+    "organ": { "type": "string" },
+    "subtype": { "type": "string" },
+    "family": { "type": "string" },
+    "canonical_label": { "type": "string" },
+    "positive_lexicalizations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "negative_lexicalizations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "uncertain_lexicalizations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "confusers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "discouraged_lexicalizations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

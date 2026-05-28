@@ -1,0 +1,70 @@
+project:
+  dataset_id: merlin_converted
+  run_id: lexicon_v1_seed_from_semantic
+
+paths:
+  semantic_base_run: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/vllm_full
+  semantic_override_run: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/vllm_targeted_v3_candidate
+  ontology_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/semantic_tagging/ontology_versions/v3_second_pass_candidate
+  lesion_csv: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin_metadata_hf_clean.csv
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/diagnostic_lexicon
+  prompt_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/diagnostic_lexicon/prompts
+  schema_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/diagnostic_lexicon/schemas
+
+dataset:
+  organ_names:
+    - Liver
+    - Pancreas
+    - Kidneys
+    - Colon
+    - Small bowel
+    - Gallbladder
+    - Adrenal glands
+    - Spleen
+    - Stomach
+    - Urinary bladder
+    - Prostate
+  decision_statuses:
+    - accepted
+    - accepted_provisional
+  override_organs:
+    - Colon
+    - Gallbladder
+    - Kidneys
+    - Small bowel
+
+mining:
+  min_support_count: 3
+  max_positive_examples_per_subtype: 64
+  max_contrast_examples_per_subtype: 64
+  max_candidate_phrases_per_subtype: 80
+  include_trigrams: true
+  include_bigrams: true
+  include_unigrams: true
+
+prompt:
+  system_template: system_v1.md
+  user_template: user_v1.md
+  output_schema: output_schema_v1.json
+  max_examples_in_prompt: 12
+  max_candidate_phrases_in_prompt: 40
+
+backend:
+  kind: vllm
+  model_name: meta-llama/Llama-3.3-70B-Instruct
+  base_url: http://127.0.0.1:8000/v1
+  api_key_env: VLLM_API_KEY
+  timeout_seconds: 120
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 512
+  request_concurrency: 16
+
+execution:
+  target_scope: subtype_registry
+  resume: true
+  batch_size: 8
+  retry_attempts: 2
+
+reporting:
+  write_summary_markdown: true

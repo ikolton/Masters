@@ -1,0 +1,95 @@
+organ: Colon
+maturity_tier: tier_2
+allow_online_expansion: true
+subtypes:
+  colon_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - The colon is normal in course and caliber.
+      - Unremarkable
+    contrast_examples:
+      - Colonic diverticulosis without evidence of diverticulitis.
+      - Mild wall thickening of the rectosigmoid colon.
+    maturity_tier: tier_1
+  colon_diverticulosis:
+    family: other_abnormal
+    canonical_label: diverticulosis
+    positive_examples:
+      - Colonic diverticulosis without evidence of diverticulitis.
+      - Diverticulosis without evidence of acute diverticulitis.
+      - Scattered colonic diverticula without diverticulitis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+    maturity_tier: tier_1
+  colon_wall_thickening:
+    family: inflammatory_thickening
+    canonical_label: colonic wall thickening
+    positive_examples:
+      - Nonspecific right colonic wall thickening is noted.
+      - 8.6-cm segment of transverse colon with wall thickening, pericolonic inflammatory stranding, and nodularity, possibly representing tumor infiltration and/or diverticulitis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Colonic diverticulosis without evidence of diverticulitis.
+    maturity_tier: tier_2
+  colon_stool_burden:
+    family: other_abnormal
+    canonical_label: colonic stool burden
+    positive_examples:
+      - Moderate colonic stool burden.
+      - Moderate to large amount of stool in the remaining colon.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+    maturity_tier: tier_2
+  colon_postsurgical_change:
+    family: absent_postop
+    canonical_label: postsurgical change of the colon
+    positive_examples:
+      - Postsurgical changes following right hemicolectomy.
+      - Colon anastomosis in the left mid abdomen that is patulous.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - Nonspecific right colonic wall thickening is noted.
+    maturity_tier: tier_2
+  colon_submucosal_edema:
+    family: inflammatory_thickening
+    canonical_label: submucosal edema of the colon
+    positive_examples:
+      - Approximately 5 cm long segment of circumferential submucosal edema involving the proximal sigmoid colon.
+      - Short segment of mucosal edema is present in the mid sigmoid colon.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Moderate colonic stool burden.
+    maturity_tier: tier_2
+  colon_pericolonic_stranding:
+    family: other_abnormal
+    canonical_label: pericolonic stranding of the colon
+    positive_examples:
+      - Long segment of sigmoid colon with prominent diverticula, circumferential wall thickening, and mild pericolonic stranding.
+      - Short segment of sigmoid colon with hyperemia and pericolonic fatty infiltration, consistent with acute uncomplicated sigmoid diverticulitis.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - Moderate colonic stool burden.
+    maturity_tier: tier_2
+  colon_colitis:
+    family: inflammatory_thickening
+    canonical_label: colitis of the colon
+    positive_examples:
+      - Colitis of the distal descending colon upstream from the colostomy with mucosal hyperenhancement and bowel wall thickening.
+      - Active colitis of the distal descending colon upstream from the colostomy.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Colonic diverticulosis without evidence of diverticulitis.
+    maturity_tier: tier_2
+  colon_mucosal_hyperemia:
+    family: inflammatory_thickening
+    canonical_label: colonic mucosal hyperemia
+    positive_examples:
+      - Diffuse colonic mucosal hyperemia with fluid seen throughout the colon with mild mural stratification.
+      - Mural thickening and hyperemia of the sigmoid colon with diverticula and surrounding inflammatory changes, suggestive of diverticulitis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Moderate colonic stool burden.
+    maturity_tier: tier_2

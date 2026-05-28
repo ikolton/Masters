@@ -1,0 +1,24 @@
+version: v2_second_pass_candidate
+normality_values:
+  - normal
+  - absent_postop
+  - abnormal
+  - mixed
+polarity_values:
+  - positive
+  - negative
+  - mixed
+certainty_values:
+  - definite
+  - probable
+  - indeterminate
+modifier_values:
+  - multiple
+  - size_present
+  - left
+  - right
+  - bilateral
+  - diffuse
+  - decompressed
+  - postoperative
+  - duct_dilation

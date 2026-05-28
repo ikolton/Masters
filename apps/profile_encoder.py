@@ -27,6 +27,7 @@ def main() -> None:
     parser.add_argument("--patch-batch-size", default="2,4,6", help="Comma-separated patch batch sizes.")
     parser.add_argument("--batch-size", default="", help="Comma-separated training batch sizes. Defaults to the base config batch size.")
     parser.add_argument("--compile-model", default="false,true", help="Comma-separated booleans.")
+    parser.add_argument("--enable-wandb", action="store_true", help="Enable W&B logging for profiling runs.")
     parser.add_argument("--output-dir", default="", help="Optional directory for profile outputs.")
     args = parser.parse_args()
 
@@ -54,6 +55,7 @@ def main() -> None:
             patch_batch_size=patch_batch_size,
             batch_size=batch_size,
             compile_model=compile_model,
+            wandb_enabled=bool(args.enable_wandb),
         )
         print(f"[profile_encoder] running {variant_name}", flush=True)
         try:
@@ -62,6 +64,7 @@ def main() -> None:
             final_metrics = history[-1] if history else {}
             train_step_seconds = float(final_metrics.get("train_step_seconds", 0.0))
             train_data_wait_seconds = float(final_metrics.get("train_data_wait_seconds", 0.0))
+            samples_per_second = 0.0 if train_step_seconds <= 0.0 else float(batch_size) / max(train_step_seconds, 1.0e-6)
             data_fraction = 0.0 if train_step_seconds <= 0.0 else train_data_wait_seconds / max(train_step_seconds, 1.0e-6)
             result = {
                 "variant": variant_name,
@@ -70,8 +73,10 @@ def main() -> None:
                 "patch_batch_size": patch_batch_size,
                 "batch_size": batch_size,
                 "compile_model": compile_model,
+                "wandb_enabled": bool(args.enable_wandb),
                 "output_dir": str(variant_output_dir),
                 "train_step_seconds": train_step_seconds,
+                "train_samples_per_second": samples_per_second,
                 "train_data_wait_seconds": train_data_wait_seconds,
                 "train_data_fraction": data_fraction,
                 "train_cuda_memory_allocated_gb": float(final_metrics.get("train_cuda_memory_allocated_gb", 0.0)),
@@ -91,6 +96,7 @@ def main() -> None:
                 "patch_batch_size": patch_batch_size,
                 "batch_size": batch_size,
                 "compile_model": compile_model,
+                "wandb_enabled": bool(args.enable_wandb),
                 "output_dir": str(variant_output_dir),
                 "error_type": type(exc).__name__,
                 "error": str(exc),
@@ -100,18 +106,34 @@ def main() -> None:
 
     successful = [item for item in results if item.get("status") == "ok"]
     ranked = sorted(successful, key=lambda item: (float(item["train_step_seconds"]), float(item["train_data_wait_seconds"])))
+    ranked_by_samples = sorted(
+        successful,
+        key=lambda item: (-float(item.get("train_samples_per_second", 0.0)), float(item["train_step_seconds"])),
+    )
     aggregate = {
         "base_config": str(Path(args.config).expanduser().resolve()),
         "output_dir": str(output_root),
+        "wandb_enabled": bool(args.enable_wandb),
         "results": results,
         "ranked_fastest_first": ranked,
+        "ranked_highest_samples_per_second": ranked_by_samples,
         "best_variant": ranked[0] if ranked else None,
+        "best_variant_by_samples_per_second": ranked_by_samples[0] if ranked_by_samples else None,
     }
     dump_json(output_root / "profile_sweep_summary.json", aggregate)
     print(json.dumps(aggregate, indent=2, sort_keys=True))
 
 
-def _profile_variant(base, *, output_dir: Path, num_workers: int, patch_batch_size: int, batch_size: int, compile_model: bool):
+def _profile_variant(
+    base,
+    *,
+    output_dir: Path,
+    num_workers: int,
+    patch_batch_size: int,
+    batch_size: int,
+    compile_model: bool,
+    wandb_enabled: bool,
+):
     output_dir = ensure_dir(output_dir)
     training = replace(
         base.training,
@@ -133,7 +155,8 @@ def _profile_variant(base, *, output_dir: Path, num_workers: int, patch_batch_si
     model = replace(base.model, patching=patching)
     paths = replace(base.paths, output_dir=str(output_dir))
     runtime = replace(base.runtime, compile_model=bool(compile_model))
-    return replace(base, paths=paths, data=data, model=model, training=training, runtime=runtime)
+    logging = replace(base.logging, wandb_enabled=bool(wandb_enabled), wandb_mode=("online" if wandb_enabled else "disabled"))
+    return replace(base, paths=paths, data=data, model=model, training=training, runtime=runtime, logging=logging)
 
 
 def _parse_int_list(raw: str) -> list[int]:

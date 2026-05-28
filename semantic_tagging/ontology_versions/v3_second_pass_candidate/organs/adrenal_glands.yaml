@@ -1,0 +1,37 @@
+organ: Adrenal glands
+maturity_tier: tier_3
+allow_online_expansion: true
+subtypes:
+  adrenal_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The adrenal glands have normal morphology with no nodules or masses.
+      - The adrenal glands appear normal.
+      - The adrenal glands are within normal limits.
+    contrast_examples:
+      - Nodular thickening of the left adrenal gland.
+      - Left adrenal adenoma.
+    maturity_tier: tier_3
+  adrenal_thickening:
+    family: other_abnormal
+    canonical_label: adrenal gland thickening
+    positive_examples:
+      - Nodular thickening of the left adrenal gland.
+      - Thickening of the left adrenal gland.
+      - Mild nodular thickening of the left adrenal gland.
+    contrast_examples:
+      - Left adrenal adenoma.
+      - The adrenal glands have normal morphology with no nodules or masses.
+    maturity_tier: tier_3
+  adrenal_nodule_adenoma:
+    family: focal_lesion
+    canonical_label: adrenal nodule/adenoma
+    positive_examples:
+      - Left adrenal adenoma.
+      - Subcentimeter left adrenal nodule.
+      - 1 cm left adrenal nodule, previously characterized as an adenoma.
+    contrast_examples:
+      - Nodular thickening of the left adrenal gland.
+      - The adrenal glands appear normal.
+    maturity_tier: tier_3

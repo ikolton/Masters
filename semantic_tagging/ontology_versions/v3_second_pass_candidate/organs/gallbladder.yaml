@@ -1,0 +1,105 @@
+organ: Gallbladder
+maturity_tier: tier_2
+allow_online_expansion: true
+subtypes:
+  gallbladder_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - The gallbladder is unremarkable without evidence of radiopaque gallstones, gallbladder wall thickening or pericholecystic fluid.
+    contrast_examples:
+      - The gallbladder is surgically absent.
+      - Gallstones without CT findings of cholecystitis.
+    maturity_tier: tier_1
+  gallbladder_absent_postop:
+    family: absent_postop
+    canonical_label: surgically absent
+    positive_examples:
+      - The gallbladder is surgically absent.
+      - Status post cholecystectomy.
+      - Gallbladder surgically absent.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+    maturity_tier: tier_2
+  gallbladder_gallstones:
+    family: other_abnormal
+    canonical_label: gallstones
+    positive_examples:
+      - Gallstones without CT findings of cholecystitis.
+    contrast_examples:
+      - The gallbladder is surgically absent.
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+    maturity_tier: tier_1
+  gallbladder_distension:
+    family: dilation_obstruction
+    canonical_label: gallbladder distension
+    positive_examples:
+      - The gallbladder is distended.
+      - Distended gallbladder without CT evidence of acute cholecystitis.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - The gallbladder is surgically absent.
+    maturity_tier: tier_2
+  gallbladder_wall_thickening:
+    family: inflammatory_thickening
+    canonical_label: gallbladder wall thickening
+    positive_examples:
+      - Mild gallbladder wall thickening.
+      - Mild nodular thickening along the gallbladder fundus compatible with a small polyp versus adenomyomatosis.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - The gallbladder is surgically absent.
+    maturity_tier: tier_2
+  gallbladder_pericholecystic_fluid:
+    family: other_abnormal
+    canonical_label: pericholecystic fluid around the gallbladder
+    positive_examples:
+      - Small amount of pericholecystic fluid.
+      - Pericholecystic fluid noted, favored to be related to underlying diffuse intraperitoneal ascites.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - Gallstones without CT findings of cholecystitis.
+    maturity_tier: tier_2
+  gallbladder_sludge:
+    family: other_abnormal
+    canonical_label: gallbladder sludge
+    positive_examples:
+      - Gallbladder sludge.
+      - Layering sludge is present within the gallbladder.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - The gallbladder is surgically absent.
+    maturity_tier: tier_2
+  gallbladder_focal_fundal_adenomyomatosis:
+    family: focal_lesion
+    canonical_label: focal fundal adenomyomatosis
+    positive_examples:
+      - Focal fundal adenomyomatosis.
+      - Mild thickening of the gallbladder fundus may represent adenomyomatosis.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - Gallstones without CT findings of cholecystitis.
+    maturity_tier: tier_2
+  gallbladder_cholecystitis:
+    family: inflammatory_thickening
+    canonical_label: cholecystitis of the gallbladder
+    positive_examples:
+      - Cholecystitis with mild calcification of the gallbladder wall.
+      - Distended gallbladder with wall thickening and pericholecystic fluid, concerning for cholecystitis.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - The gallbladder is surgically absent.
+    maturity_tier: tier_2
+  gallbladder_polyp_or_stone:
+    family: other_abnormal
+    canonical_label: gallbladder polyp or stone
+    positive_examples:
+      - Small nodular densities in the gallbladder lumen, representing polyps or stones.
+      - A hyperdense focus in the gallbladder fundus may represent a polyp or calculus.
+      - Gallbladder polyp versus stone is present in the neck.
+    contrast_examples:
+      - Gallstones without CT findings of cholecystitis.
+      - Focal fundal adenomyomatosis.
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+    maturity_tier: tier_2

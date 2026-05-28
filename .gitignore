@@ -5,6 +5,12 @@ wandb/
 *.pth
 *.ckpt
 
+# Slurm job output (large, not source)
+logs/
+
+# Local working docs (Claude superpowers plans/specs, not yet versioned)
+docs/superpowers/
+
 # Local training/debug config scratch space
 configs/encoder/train/debug_nan/
 configs/encoder/train/debug_profile/

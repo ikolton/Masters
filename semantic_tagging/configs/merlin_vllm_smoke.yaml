@@ -1,0 +1,67 @@
+project:
+  dataset_id: merlin_converted
+  run_id: vllm_smoke
+
+paths:
+  dataset_root: /net/storage/pr3/plgrid/plggjmiag/Merlin_converted
+  lesion_csv: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin_metadata_hf_clean.csv
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging
+  ontology_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/semantic_tagging/ontology
+  prompt_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/semantic_tagging/prompts
+  schema_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/semantic_tagging/schemas
+
+dataset:
+  splits: [train, val]
+  verify_files: true
+  organ_names:
+    - Spleen
+    - Kidneys
+    - Gallbladder
+    - Liver
+    - Stomach
+    - Pancreas
+    - Adrenal glands
+    - Small bowel
+    - Colon
+    - Urinary bladder
+    - Prostate
+
+prompt:
+  system_template: system_v1.md
+  user_template: user_v1.md
+  output_schema: output_schema_v1.json
+  fewshot_dir: fewshot
+  max_fewshot_examples: 5
+  include_existing_subtypes: true
+
+ontology:
+  allow_online_expansion: true
+  proposal_confidence_threshold: 0.70
+  duplicate_similarity_threshold: 0.88
+  max_provisional_examples_per_subtype: 8
+
+execution:
+  batch_size: 8
+  retry_attempts: 1
+  worker_index: 0
+  num_workers: 1
+  resume: true
+  max_records_per_organ: 3
+
+backend:
+  kind: vllm
+  model_name: meta-llama/Llama-3.3-70B-Instruct
+  base_url: http://127.0.0.1:8000/v1
+  api_key_env: VLLM_API_KEY
+  timeout_seconds: 120
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 320
+  use_response_format_json: false
+  use_guided_json: false
+  request_concurrency: 8
+  request_retries: 4
+  retry_backoff_seconds: 2.0
+
+reporting:
+  write_summary_markdown: true

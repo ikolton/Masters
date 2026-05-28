@@ -1,0 +1,37 @@
+paths:
+  merlin_repo: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin
+  dataset_root: /net/storage/pr3/plgrid/plggjmiag/Merlin_converted
+  metadata_csv: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin_metadata_hf_clean.csv
+  semantic_targets_jsonl: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/semantic_training_targets_v3.jsonl
+  semantic_vocab_json: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/training_vocab_v3_clean.json
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/models_ablations/merlin
+  cache_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/models_ablations/merlin/cache
+data:
+  train_split: train
+  val_split: val
+  train_limit:
+  val_limit:
+  sample_seed: 13
+model:
+  freeze_image_encoder: true
+  train_adapter: true
+  train_decoder_lora: true
+  max_length: 1024
+  merlin_load_cwd: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin
+losses:
+  ce_weight: 1.0
+  lexical_weight: 0.0
+  semantic_weight: 0.0
+  semantic_variant: family
+train:
+  run_id: full_ce_only
+  epochs: 1
+  max_steps:
+  batch_size: 2
+  num_workers: 4
+  learning_rate: 0.00001
+  grad_accum_steps: 8
+  log_every: 10
+  save_checkpoint: true
+  mixed_precision: bf16
+  device: cuda

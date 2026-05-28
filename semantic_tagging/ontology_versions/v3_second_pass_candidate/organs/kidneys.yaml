@@ -1,0 +1,125 @@
+organ: Kidneys
+maturity_tier: tier_2
+allow_online_expansion: true
+subtypes:
+  kidneys_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+      - The kidneys are symmetric in size, contour, contrast enhancement and excretion. No focal renal mass, hydronephrosis or nephrolithiasis.
+      - The kidneys demonstrate no evidence of enhancing renal masses, nephrolithiasis, or hydronephrosis.
+    contrast_examples:
+      - Bilateral renal cysts.
+      - Multiple bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_cystic_lesion:
+    family: cystic_lesion
+    canonical_label: renal cysts
+    positive_examples:
+      - Bilateral renal cysts.
+      - Multiple bilateral renal cysts.
+      - Punctate hypo-densities within the renal parenchyma are too small to characterize, however statistically likely represent renal cysts.
+    contrast_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+    maturity_tier: tier_2
+  kidneys_absent_postop:
+    family: absent_postop
+    canonical_label: bilateral nephrectomy
+    positive_examples:
+      - Status post bilateral nephrectomy.
+      - Bilateral nephrectomy changes are present.
+    contrast_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_stone:
+    family: calcification
+    canonical_label: renal stone
+    positive_examples:
+      - 2 mm nonobstructing stone in the right kidney upper pole. Otherwise negative.
+      - Multiple bilateral nonobstructing renal calculi measuring up to 8 mm in the left and 3 mm on the right.
+    contrast_examples:
+      - The kidneys demonstrate no evidence of enhancing renal masses, nephrolithiasis, or hydronephrosis.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_hydronephrosis:
+    family: dilation_obstruction
+    canonical_label: renal hydronephrosis
+    positive_examples:
+      - Bilateral mild hydronephrosis.
+      - Mild left hydronephrosis with narrowing of the ureter in the midportion, in an area with a surgical clip.
+    contrast_examples:
+      - The kidneys are symmetric in size, contour, contrast enhancement and excretion. No focal renal mass, hydronephrosis or nephrolithiasis.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_hypoattenuating_lesion:
+    family: focal_lesion
+    canonical_label: hypoattenuating renal lesion
+    positive_examples:
+      - Bilateral hypoattenuating lesions, too small to definitively characterize.
+      - Additional smaller hypodensities in the kidneys are too small to definitively characterize.
+    contrast_examples:
+      - Bilateral renal cysts.
+      - The kidneys demonstrate no evidence of enhancing renal masses, nephrolithiasis, or hydronephrosis.
+    maturity_tier: tier_2
+  kidneys_cortical_scarring:
+    family: other_abnormal
+    canonical_label: cortical scarring of the kidneys
+    positive_examples:
+      - Patchy cortical scarring involving both kidneys.
+      - Scarring in the upper pole of the right kidney.
+    contrast_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_atrophic:
+    family: other_abnormal
+    canonical_label: atrophic kidneys
+    positive_examples:
+      - Atrophic native kidneys.
+      - Bilateral atrophic kidneys and nonobstructing renal calculi bilaterally.
+    contrast_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_delayed_excretion:
+    family: other_abnormal
+    canonical_label: delayed renal excretion
+    positive_examples:
+      - Mildly delayed excretion bilaterally.
+      - No excretion of the left kidney on delays.
+    contrast_examples:
+      - The kidneys are symmetric in size, contour, contrast enhancement and excretion.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_perinephric_stranding:
+    family: other_abnormal
+    canonical_label: perinephric stranding of the kidneys
+    positive_examples:
+      - Asymmetric mild left perinephric stranding and minimal urothelial enhancement.
+      - Postsurgical changes related to partial right nephrectomy, with right lower pole cortical irregularity and mild perinephric stranding.
+    contrast_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_urothelial_thickening:
+    family: inflammatory_thickening
+    canonical_label: renal urothelial thickening
+    positive_examples:
+      - Bilateral urothelial thickening which may be reactive.
+      - The ureteral wall enhances mildly, reflecting pyelitis.
+    contrast_examples:
+      - The kidneys demonstrate no evidence of enhancing renal masses, nephrolithiasis, or hydronephrosis.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_hydroureter:
+    family: dilation_obstruction
+    canonical_label: hydroureter of the kidneys
+    positive_examples:
+      - Mild bilateral hydroureter without significant hydronephrosis.
+      - Mild left hydroureteronephrosis is present.
+    contrast_examples:
+      - The kidneys are symmetric in size, contour, contrast enhancement and excretion. No focal renal mass, hydronephrosis or nephrolithiasis.
+      - Bilateral renal cysts.
+    maturity_tier: tier_2

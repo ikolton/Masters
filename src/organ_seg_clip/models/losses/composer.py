@@ -20,7 +20,11 @@ class OrganSegLossComposer(nn.Module):
         self.organ_finding_counts = dict(organ_finding_counts or {})
 
     def forward(self, outputs: OrganSegOutput, batch: EncoderBatch) -> tuple[RepresentationLossOutput, dict[str, float]]:
-        if self.config.alignment_type == "siglip":
+        # Organ alignment
+        if float(self.config.organ_alignment_weight or 0.0) == 0.0:
+            organ_clip_loss = outputs.organ_image_embeddings.sum() * 0.0
+            organ_metrics = {"image_to_text_top1": 0.0, "text_to_image_top1": 0.0}
+        elif self.config.alignment_type == "siglip":
             organ_clip_loss, organ_metrics = masked_organ_siglip_loss(
                 outputs.organ_image_embeddings,
                 outputs.organ_text_embeddings,
@@ -37,8 +41,20 @@ class OrganSegLossComposer(nn.Module):
                 frequency_balance_power=float(self.config.organ_frequency_balance_power),
                 frequency_balance_min=float(self.config.organ_frequency_balance_min),
                 frequency_balance_max=float(self.config.organ_frequency_balance_max),
+                soft_positive_threshold=self.config.siglip_soft_positive_threshold,
+                hard_negative_weight=float(self.config.siglip_hard_negative_weight),
             )
-            if float(self.config.report_alignment_weight or 0.0) != 0.0:
+        else:
+            organ_clip_loss, organ_metrics = masked_organ_clip_loss(
+                outputs.organ_image_embeddings,
+                outputs.organ_text_embeddings,
+                batch.organ_text_mask,
+                batch.organ_raw_texts,
+                outputs.logit_scale,
+            )
+        # Report alignment
+        if float(self.config.report_alignment_weight or 0.0) != 0.0:
+            if self.config.alignment_type == "siglip":
                 report_mask = torch.tensor([bool(text) for text in batch.report_texts], device=outputs.report_image_embeddings.device, dtype=torch.bool)
                 report_clip_loss, report_metrics = masked_report_siglip_loss(
                     outputs.report_image_embeddings,
@@ -49,21 +65,10 @@ class OrganSegLossComposer(nn.Module):
                     outputs.report_logit_bias,
                 )
             else:
-                report_clip_loss = outputs.report_image_embeddings.sum() * 0.0
-                report_metrics = {"image_to_text_top1": 0.0, "text_to_image_top1": 0.0, "valid_count": 0.0}
-        else:
-            organ_clip_loss, organ_metrics = masked_organ_clip_loss(
-                outputs.organ_image_embeddings,
-                outputs.organ_text_embeddings,
-                batch.organ_text_mask,
-                batch.organ_raw_texts,
-                outputs.logit_scale,
-            )
-            if float(self.config.report_alignment_weight or 0.0) != 0.0:
                 report_clip_loss, report_metrics = _masked_report_clip_loss(outputs, batch)
-            else:
-                report_clip_loss = outputs.report_image_embeddings.sum() * 0.0
-                report_metrics = {"image_to_text_top1": 0.0, "text_to_image_top1": 0.0}
+        else:
+            report_clip_loss = outputs.report_image_embeddings.sum() * 0.0
+            report_metrics = {"image_to_text_top1": 0.0, "text_to_image_top1": 0.0, "valid_count": 0.0}
         diagnostic_loss, diagnostic_metrics = masked_binary_diagnostic_loss(
             outputs.diagnostic_logits,
             batch.organ_labels,
@@ -126,6 +131,7 @@ class OrganSegLossComposer(nn.Module):
             "organ_attention_positive_accuracy": float(outputs.organ_attention_positive_accuracy),
             "organ_attention_negative_accuracy": float(outputs.organ_attention_negative_accuracy),
             "segmentation_dice": float(outputs.segmentation_dice),
+            "segmentation_foreground_dice": float(outputs.segmentation_foreground_dice),
         }
         if self.config.alignment_type == "siglip":
             metrics.update(

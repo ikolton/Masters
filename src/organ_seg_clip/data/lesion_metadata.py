@@ -18,7 +18,6 @@ CSV_TO_ORGAN_NAME: dict[str, str] = {
     "gallbladder": "Gallbladder",
     "stomach": "Stomach",
     "prostate": "Prostate",
-    "duodenum": "Small bowel",
 }
 
 

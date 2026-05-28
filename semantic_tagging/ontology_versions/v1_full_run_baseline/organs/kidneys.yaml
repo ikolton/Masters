@@ -1,0 +1,25 @@
+organ: Kidneys
+maturity_tier: tier_2
+allow_online_expansion: true
+subtypes:
+  kidneys_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+      - The kidneys are symmetric in size, contour, contrast enhancement and excretion. No focal renal mass, hydronephrosis or nephrolithiasis.
+      - The kidneys demonstrate no evidence of enhancing renal masses, nephrolithiasis, or hydronephrosis.
+    contrast_examples:
+      - Bilateral renal cysts.
+      - Multiple bilateral renal cysts.
+    maturity_tier: tier_2
+  kidneys_cystic_lesion:
+    family: cystic_lesion
+    canonical_label: renal cysts
+    positive_examples:
+      - Bilateral renal cysts.
+      - Multiple bilateral renal cysts.
+      - Punctate hypo-densities within the renal parenchyma are too small to characterize, however statistically likely represent renal cysts.
+    contrast_examples:
+      - The kidneys are normal in size and axis. No hydronephrosis, renal calculi, or solid masses.
+    maturity_tier: tier_2

@@ -1,0 +1,87 @@
+paths:
+  dataset_root: ''
+  output_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/decoder/train_qwen05b_per_organ_concept_lexical_v1_5_w002_best6_gh200_1gpu_bs64_10ep_sched_norepeat
+  visual_encoder_checkpoint: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/encoder/organsegclip_128x48_20ep_uniformtext_schedcos_logitslr1e5_gh200_2gpu_bs12/visual_encoder_best.pt
+  feature_cache_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/decoder/train_qwen05b_per_organ_lexical_diag_v1_best6_gh200_1gpu_bs64_10ep_sched_norepeat/features
+
+data:
+  train_split: train
+  val_split: val
+  train_limit: null
+  val_limit: null
+  verify_metadata: true
+  lesion_metadata_csv: ''
+  lesion_positive_repeat_factor: 1
+  abnormal_label_repeat_factor: 1
+  organ_names: [Spleen, Kidneys, Gallbladder, Liver, Stomach, Pancreas, Adrenal glands, Small bowel, Colon, Urinary bladder, Prostate]
+
+model:
+  llm_model_name_or_path: Qwen/Qwen2.5-0.5B
+  visual_prefix_mode: report_plus_organ
+  prompt_template: "Generate the CT finding for {organ}###\n"
+  max_length: 256
+  max_new_tokens: 128
+  freeze_llm: true
+  gradient_checkpointing: true
+  torch_dtype: bfloat16
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+diagnostic_loss:
+  enabled: true
+  variant: concept_specific_lexical
+  lexical_target_cache: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/diagnostic_lexicon/merlin_converted/lexical_diag_v1_from_semantic_v3/tokenized_concept_lexical_targets_v1.pt
+  weight: 0.02
+  positive_pathology_weight: 1.0
+  negative_pathology_weight: 0.5
+  negative_temperature: 8.0
+  epsilon: 1.0e-6
+
+semantic_loss:
+  enabled: false
+
+training:
+  seed: 13
+  device: cuda
+  batch_size: 64
+  cache_build_batch_size: 4
+  epochs: 10
+  learning_rate: 2.0e-4
+  projector_learning_rate: 2.0e-4
+  weight_decay: 0.0
+  amp: true
+  amp_dtype: bfloat16
+  scheduler_type: cosine
+  warmup_steps: 500
+  min_learning_rate: 2.0e-5
+  scheduler_interval: step
+  max_grad_norm: 1.0
+  num_workers: 4
+  cache_build_num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  log_every_steps: 20
+  save_every_steps: 500
+  save_last_checkpoint: true
+  save_best_checkpoint: true
+  best_checkpoint_metric: val_total_loss
+  ddp_find_unused_parameters: false
+  precompute_features_if_missing: true
+
+generation:
+  do_sample: false
+  num_beams: 1
+  repetition_penalty: 1.2
+  max_new_tokens: 128
+
+logging:
+  experiment_name: train_qwen05b_per_organ_concept_lexical_v1_5_w002_best6_gh200_1gpu_bs64_10ep_sched_norepeat
+  wandb_enabled: true
+  wandb_project: organ_seg_clip
+  wandb_run_name: train_qwen05b_per_organ_concept_lexical_v1_5_w002_best6_gh200_1gpu_bs64_10ep_sched_norepeat
+  wandb_mode: online

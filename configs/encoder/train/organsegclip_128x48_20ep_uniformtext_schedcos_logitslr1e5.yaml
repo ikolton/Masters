@@ -1,13 +1,13 @@
 paths:
   dataset_root_env: ORGAN_SEG_CLIP_DATASET_ROOT
-  dataset_root: /net/pr2/projects/plgrid/plggjmiag/Merlin_converted
+  dataset_root: ''
   output_dir: ../../../outputs/encoder/organsegclip_128x48_20ep_uniformtext_schedcos_logitslr1e5
 data:
   train_split: train
   val_split: val
   train_limit: null
   val_limit: null
-  lesion_metadata_csv: /net/tscratch/people/plgikolton/ReportGen/Merlin_metadata_hf_clean.csv
+  lesion_metadata_csv: ''
 preprocessing:
   resample_spacing:
   - 2.0
@@ -119,7 +119,7 @@ training:
   profile_timing: false
   save_last_checkpoint: true
   save_best_checkpoint: true
-  best_checkpoint_metric: full_val_total_loss
+  best_checkpoint_metric: full_val_organ_alignment_loss
 runtime:
   compile_model: false
 logging:

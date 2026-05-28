@@ -134,10 +134,12 @@ class OrganSegCLIPModel(nn.Module):
             self.report_image_projection = nn.Identity()
             self.report_text_projection = nn.Identity()
         self.logit_scale = nn.Parameter(torch.tensor(math.log(1.0 / 0.07), dtype=torch.float32))
-        self.organ_logit_scale = nn.Parameter(torch.tensor(math.log(10.0), dtype=torch.float32))
-        self.organ_logit_bias = nn.Parameter(torch.tensor(-10.0, dtype=torch.float32))
-        self.report_logit_scale = nn.Parameter(torch.tensor(math.log(10.0), dtype=torch.float32))
-        self.report_logit_bias = nn.Parameter(torch.tensor(-10.0, dtype=torch.float32))
+        _organ_scale_init = float(config.model.organs.organ_logit_scale_init)
+        _organ_bias_init = float(config.model.organs.organ_logit_bias_init)
+        self.organ_logit_scale = nn.Parameter(torch.tensor(math.log(_organ_scale_init), dtype=torch.float32))
+        self.organ_logit_bias = nn.Parameter(torch.tensor(_organ_bias_init, dtype=torch.float32))
+        self.report_logit_scale = nn.Parameter(torch.tensor(math.log(_organ_scale_init), dtype=torch.float32))
+        self.report_logit_bias = nn.Parameter(torch.tensor(_organ_bias_init, dtype=torch.float32))
         self.segmentation_loss_type = config.loss.segmentation_loss_type
         self.patch_size = tuple(int(v) for v in config.model.patching.patch_size)
         self.patch_stride = tuple(int(v) for v in config.model.patching.patch_stride)
@@ -194,6 +196,8 @@ class OrganSegCLIPModel(nn.Module):
         segmentation_loss_sum = self.logit_scale.new_zeros(())
         segmentation_dice_sum = 0.0
         segmentation_patch_count = 0
+        segmentation_foreground_dice_sum = 0.0
+        segmentation_foreground_patch_count = 0
         patch_organ_loss_sum = self.logit_scale.new_zeros(())
         patch_organ_correct_sum = 0.0
         patch_organ_count = 0
@@ -203,6 +207,8 @@ class OrganSegCLIPModel(nn.Module):
             sample_seg_loss,
             sample_seg_dice,
             sample_patch_count,
+            sample_fg_dice,
+            sample_fg_patch_count,
             sample_patch_organ_loss,
             sample_patch_organ_accuracy,
             sample_patch_organ_count,
@@ -216,6 +222,8 @@ class OrganSegCLIPModel(nn.Module):
             segmentation_loss_sum = segmentation_loss_sum + sample_seg_loss * max(sample_patch_count, 1)
             segmentation_dice_sum += sample_seg_dice * max(sample_patch_count, 1)
             segmentation_patch_count += sample_patch_count
+            segmentation_foreground_dice_sum += sample_fg_dice * max(sample_fg_patch_count, 0)
+            segmentation_foreground_patch_count += sample_fg_patch_count
             segmentation_oom_fallback_count += int(sample_segmentation_oom_fallback_count)
             if sample_patch_organ_count > 0:
                 patch_organ_loss_sum = patch_organ_loss_sum + sample_patch_organ_loss * sample_patch_organ_count
@@ -309,6 +317,8 @@ class OrganSegCLIPModel(nn.Module):
             segmentation_loss=segmentation_loss_sum / patch_count,
             segmentation_dice=segmentation_dice_sum / patch_count,
             segmentation_patch_count=segmentation_patch_count,
+            segmentation_foreground_dice=segmentation_foreground_dice_sum / max(segmentation_foreground_patch_count, 1) if segmentation_foreground_patch_count > 0 else 0.0,
+            segmentation_foreground_patch_count=segmentation_foreground_patch_count,
             patch_organ_presence_loss=patch_organ_presence_loss,
             patch_organ_presence_accuracy=float(patch_organ_presence_accuracy),
             patch_organ_presence_count=patch_organ_count,
@@ -323,6 +333,10 @@ class OrganSegCLIPModel(nn.Module):
             patches_per_study_mean=float(patches_per_study_mean),
             patches_per_study_max=patches_per_study_max,
             segmentation_oom_fallback_count=segmentation_oom_fallback_count,
+            organ_image_features=organ_image_features,
+            organ_text_features=organ_text_features,
+            report_image_features=report_image_features,
+            report_text_features=report_text_features,
         )
 
     @torch.no_grad()
@@ -359,7 +373,7 @@ class OrganSegCLIPModel(nn.Module):
     def _encode_studies_batched(
         self,
         studies: list[_PreparedStudy],
-    ) -> list[tuple[torch.Tensor, torch.Tensor, float, int, torch.Tensor, float, int, torch.Tensor, torch.Tensor, int]]:
+    ) -> list[tuple[torch.Tensor, torch.Tensor, float, int, float, int, torch.Tensor, float, int, torch.Tensor, torch.Tensor, int]]:
         if not studies:
             return []
         study_count = len(studies)
@@ -371,6 +385,8 @@ class OrganSegCLIPModel(nn.Module):
         loss_sums = [self.logit_scale.new_zeros(()) for _ in range(study_count)]
         dice_sums = [0.0 for _ in range(study_count)]
         patch_counts = [0 for _ in range(study_count)]
+        foreground_dice_sums = [0.0 for _ in range(study_count)]
+        foreground_patch_counts = [0 for _ in range(study_count)]
         patch_organ_loss_sums = [self.logit_scale.new_zeros(()) for _ in range(study_count)]
         patch_organ_correct_sums = [0.0 for _ in range(study_count)]
         patch_organ_counts = [0 for _ in range(study_count)]
@@ -558,7 +574,7 @@ class OrganSegCLIPModel(nn.Module):
                                 features.index_select(0, supervised_indices) for features in feature_pyramid
                             )
                             try:
-                                chunk_loss_sum, chunk_dice_sum, supervised_count, fallback_count = _segmentation_supervision_with_oom_fallback(
+                                chunk_loss_sum, chunk_dice_sum, supervised_count, fallback_count, chunk_fg_dice_sum, chunk_fg_count = _segmentation_supervision_with_oom_fallback(
                                     patch_segmentation_head=self.patch_segmentation_head,
                                     supervised_image_tiles=supervised_image_tiles,
                                     supervised_feature_pyramid=supervised_feature_pyramid,
@@ -590,6 +606,8 @@ class OrganSegCLIPModel(nn.Module):
                                 loss_sums[study_index] = loss_sums[study_index] + chunk_loss_sum
                                 dice_sums[study_index] += chunk_dice_sum
                                 patch_counts[study_index] += supervised_count
+                                foreground_dice_sums[study_index] += chunk_fg_dice_sum
+                                foreground_patch_counts[study_index] += chunk_fg_count
                                 segmentation_oom_fallback_counts[study_index] += fallback_count
 
                 patch_targets = None
@@ -650,7 +668,7 @@ class OrganSegCLIPModel(nn.Module):
                     )
                 for work in deferred_segmentation_work:
                     recomputed_feature_pyramid = self.patch_encoder(work.supervised_image_tiles)
-                    chunk_loss_sum, chunk_dice_sum, supervised_count, fallback_count = _segmentation_supervision_with_oom_fallback(
+                    chunk_loss_sum, chunk_dice_sum, supervised_count, fallback_count, chunk_fg_dice_sum, chunk_fg_count = _segmentation_supervision_with_oom_fallback(
                         patch_segmentation_head=self.patch_segmentation_head,
                         supervised_image_tiles=work.supervised_image_tiles,
                         supervised_feature_pyramid=recomputed_feature_pyramid,
@@ -663,6 +681,8 @@ class OrganSegCLIPModel(nn.Module):
                     loss_sums[work.study_index] = loss_sums[work.study_index] + chunk_loss_sum
                     dice_sums[work.study_index] += chunk_dice_sum
                     patch_counts[work.study_index] += supervised_count
+                    foreground_dice_sums[work.study_index] += chunk_fg_dice_sum
+                    foreground_patch_counts[work.study_index] += chunk_fg_count
                     segmentation_oom_fallback_counts[work.study_index] += fallback_count + 1
                     del recomputed_feature_pyramid
                 if active_debug_step:
@@ -688,7 +708,7 @@ class OrganSegCLIPModel(nn.Module):
             start += chunk_tile_count
             chunk_index += 1
 
-        encoded_studies: list[tuple[torch.Tensor, torch.Tensor, float, int, torch.Tensor, float, int, torch.Tensor, torch.Tensor, int]] = []
+        encoded_studies: list[tuple[torch.Tensor, torch.Tensor, float, int, float, int, torch.Tensor, float, int, torch.Tensor, torch.Tensor, int]] = []
         for study_index, study in enumerate(studies):
             if attention_target_chunks[study_index]:
                 attention_targets = torch.cat(attention_target_chunks[study_index], dim=0)
@@ -718,12 +738,16 @@ class OrganSegCLIPModel(nn.Module):
             patch_organ_accuracy = (
                 0.0 if patch_organ_counts[study_index] == 0 else patch_organ_correct_sums[study_index] / patch_organ_counts[study_index]
             )
+            fg_count = foreground_patch_counts[study_index]
+            fg_dice = 0.0 if fg_count == 0 else foreground_dice_sums[study_index] / fg_count
             encoded_studies.append(
                 (
                     study_tokens,
                     loss_sums[study_index] / max(patch_counts[study_index], 1),
                     0.0 if patch_counts[study_index] == 0 else dice_sums[study_index] / patch_counts[study_index],
                     patch_counts[study_index],
+                    fg_dice,
+                    fg_count,
                     patch_organ_loss,
                     patch_organ_accuracy,
                     patch_organ_counts[study_index],
@@ -738,7 +762,7 @@ class OrganSegCLIPModel(nn.Module):
         self,
         batch: EncoderBatch,
         sample_index: int,
-    ) -> tuple[torch.Tensor, torch.Tensor, float, int, torch.Tensor, float, int, torch.Tensor, torch.Tensor, int]:
+    ) -> tuple[torch.Tensor, torch.Tensor, float, int, float, int, torch.Tensor, float, int, torch.Tensor, torch.Tensor, int]:
         prepared_study = self._prepare_study(batch, sample_index)
         return self._encode_studies_batched([prepared_study])[0]
 
@@ -770,11 +794,11 @@ def _segmentation_supervision_with_oom_fallback(
     loss_type: str,
     debug_step: str = "",
     debug_phase: str = "",
-) -> tuple[torch.Tensor, float, int, int]:
+) -> tuple[torch.Tensor, float, int, int, float, int]:
     supervised_count = int(supervised_image_tiles.shape[0])
     if supervised_count == 0:
         zero = supervised_image_tiles.sum() * 0.0
-        return zero, 0.0, 0, 0
+        return zero, 0.0, 0, 0, 0.0, 0
 
     ce_numerator_sum = supervised_image_tiles.sum() * 0.0
     ce_denominator_sum = supervised_image_tiles.sum() * 0.0
@@ -783,6 +807,10 @@ def _segmentation_supervision_with_oom_fallback(
     dice_intersection_sums: torch.Tensor | None = None
     dice_prediction_sums: torch.Tensor | None = None
     dice_target_sums: torch.Tensor | None = None
+    foreground_intersection_sums: torch.Tensor | None = None
+    foreground_prediction_sums: torch.Tensor | None = None
+    foreground_target_sums: torch.Tensor | None = None
+    foreground_patch_count = 0
     fallback_count = 0
 
     for sample_index in range(supervised_count):
@@ -856,6 +884,15 @@ def _segmentation_supervision_with_oom_fallback(
         dice_intersection_sums += sample_intersection_sums
         dice_prediction_sums += sample_prediction_sums
         dice_target_sums += sample_target_sums
+        if (sample_target_sums[1:] > 0).any():
+            if foreground_intersection_sums is None:
+                foreground_intersection_sums = torch.zeros_like(sample_intersection_sums)
+                foreground_prediction_sums = torch.zeros_like(sample_prediction_sums)
+                foreground_target_sums = torch.zeros_like(sample_target_sums)
+            foreground_intersection_sums += sample_intersection_sums
+            foreground_prediction_sums += sample_prediction_sums
+            foreground_target_sums += sample_target_sums
+            foreground_patch_count += 1
         if debug_step:
             _debug_segmentation_memory(
                 step=debug_step,
@@ -886,7 +923,24 @@ def _segmentation_supervision_with_oom_fallback(
         chunk_dice = float(class_scores.mean().item())
     else:
         chunk_dice = 1.0
-    return chunk_loss * supervised_count, chunk_dice * supervised_count, supervised_count, fallback_count
+    if (
+        foreground_intersection_sums is not None
+        and foreground_prediction_sums is not None
+        and foreground_target_sums is not None
+        and foreground_patch_count > 0
+    ):
+        fg_valid_class_mask = (foreground_prediction_sums[1:] > 0) | (foreground_target_sums[1:] > 0)
+        if fg_valid_class_mask.any():
+            fg_class_scores = (
+                (2.0 * foreground_intersection_sums[1:] + 1.0)
+                / (foreground_prediction_sums[1:] + foreground_target_sums[1:] + 1.0)
+            )[fg_valid_class_mask]
+            foreground_chunk_dice = float(fg_class_scores.mean().item())
+        else:
+            foreground_chunk_dice = 0.0
+    else:
+        foreground_chunk_dice = 0.0
+    return chunk_loss * supervised_count, chunk_dice * supervised_count, supervised_count, fallback_count, foreground_chunk_dice * foreground_patch_count, foreground_patch_count
 
 
 def _checkpointed_segmentation_head(

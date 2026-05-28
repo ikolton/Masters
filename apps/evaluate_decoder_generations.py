@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,10 @@ DEFAULT_ORGAN_ORDER = (
     "Urinary bladder",
     "Prostate",
 )
+DEFAULT_LOCAL_PYCOCOEVALCAP_ROOT = "/net/scratch/hscra/plgrid/plgikolton/Magisterka/pycocoevalcap"
+DEFAULT_LOCAL_RADEVAL_ROOT = "/net/scratch/hscra/plgrid/plgikolton/Magisterka/RadEval"
+_GREEN_EVALUATOR = None
+_GREEN_EVALUATOR_SETTINGS = None
 
 
 def main() -> None:
@@ -72,6 +78,9 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=None, help="Optional limit on usable rows, useful for heavy metric smoke tests.")
     parser.add_argument("--no-study-level", action="store_true", help="Disable reconstructed study-level support metrics.")
+    parser.add_argument("--green-batch-size", type=int, default=32, help="GREEN judge batch size.")
+    parser.add_argument("--green-max-new-tokens", type=int, default=192, help="GREEN judge max_new_tokens.")
+    parser.add_argument("--green-prompt-max-length", type=int, default=2048, help="GREEN prompt truncation length.")
     parser.add_argument("--indent", type=int, default=2, help="JSON indentation for output.")
     args = parser.parse_args()
 
@@ -82,6 +91,9 @@ def main() -> None:
         green_scope=args.green_scope if args.green else "none",
         limit=args.limit,
         include_study_level=not args.no_study_level,
+        green_batch_size=args.green_batch_size,
+        green_max_new_tokens=args.green_max_new_tokens,
+        green_prompt_max_length=args.green_prompt_max_length,
     )
     text = json.dumps(result, indent=args.indent)
     if args.output:
@@ -99,6 +111,9 @@ def evaluate_file(
     green_scope: str,
     limit: int | None,
     include_study_level: bool,
+    green_batch_size: int = 32,
+    green_max_new_tokens: int = 192,
+    green_prompt_max_length: int = 2048,
 ) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     raw_rows, payload_warning = _extract_rows(payload)
@@ -136,6 +151,9 @@ def evaluate_file(
             tokenize=tokenize,
             unavailable=unavailable,
             include_green=green_scope in {"organ", "both"},
+            green_batch_size=green_batch_size,
+            green_max_new_tokens=green_max_new_tokens,
+            green_prompt_max_length=green_prompt_max_length,
         )
         result["keyword_diagnostics"] = summarize_keyword_metrics(rows)
         if include_study_level:
@@ -151,6 +169,9 @@ def evaluate_file(
                     include_green=green_scope in {"study", "both"},
                     include_per_organ=False,
                     include_lesion=False,
+                    green_batch_size=green_batch_size,
+                    green_max_new_tokens=green_max_new_tokens,
+                    green_prompt_max_length=green_prompt_max_length,
                 )
                 result["study_level_support"]["count"] = len(study_rows)
     else:
@@ -181,6 +202,7 @@ def _validate_rows(raw_rows: list[Any]) -> tuple[list[dict[str, Any]], dict[str,
         "missing_target": 0,
         "missing_organ": 0,
         "missing_study_id": 0,
+        "missing_organ_abnormal_label": 0,
         "missing_lesion_label": 0,
     }
     warnings: list[str] = []
@@ -209,6 +231,8 @@ def _validate_rows(raw_rows: list[Any]) -> tuple[list[dict[str, Any]], dict[str,
             summary["missing_organ"] += 1
         if not _clean_text(raw.get("study_id")):
             summary["missing_study_id"] += 1
+        if raw.get("organ_abnormal_label") is None:
+            summary["missing_organ_abnormal_label"] += 1
         if raw.get("lesion_label") is None:
             summary["missing_lesion_label"] += 1
         row = dict(raw)
@@ -222,6 +246,8 @@ def _validate_rows(raw_rows: list[Any]) -> tuple[list[dict[str, Any]], dict[str,
         warnings.append(f"{summary['missing_organ']} usable rows are missing 'organ'; excluded from per-organ metrics.")
     if summary["missing_study_id"]:
         warnings.append(f"{summary['missing_study_id']} usable rows are missing 'study_id'; study-level support metrics may be partial or disabled.")
+    if summary["missing_organ_abnormal_label"]:
+        warnings.append(f"{summary['missing_organ_abnormal_label']} usable rows are missing 'organ_abnormal_label'; excluded from dataset-label-stratified metrics.")
     if summary["missing_lesion_label"]:
         warnings.append(f"{summary['missing_lesion_label']} usable rows are missing 'lesion_label'; excluded from lesion-stratified metrics.")
     return rows, summary, warnings
@@ -236,6 +262,9 @@ def _evaluate_rows(
     include_green: bool = False,
     include_per_organ: bool = True,
     include_lesion: bool = True,
+    green_batch_size: int = 32,
+    green_max_new_tokens: int = 192,
+    green_prompt_max_length: int = 2048,
 ) -> dict[str, Any]:
     corpus_scores, sentence_scores = _run_coco_metrics(
         rows,
@@ -244,7 +273,13 @@ def _evaluate_rows(
         unavailable=unavailable,
     )
     if include_green:
-        green_score, green_sentence_scores = _run_green_metric(rows, unavailable=unavailable)
+        green_score, green_sentence_scores = _run_green_metric(
+            rows,
+            unavailable=unavailable,
+            green_batch_size=green_batch_size,
+            green_max_new_tokens=green_max_new_tokens,
+            green_prompt_max_length=green_prompt_max_length,
+        )
         corpus_scores.update(green_score)
         sentence_scores.update(green_sentence_scores)
     output: dict[str, Any] = {
@@ -263,6 +298,23 @@ def _evaluate_rows(
         output["per_organ"] = per_organ
         output["per_organ_aggregation"] = "mean_sentence_scores"
     if include_lesion:
+        abnormal_buckets: dict[str, list[int]] = {"positive": [], "negative": []}
+        for index, row in enumerate(rows):
+            label = row.get("organ_abnormal_label")
+            if label is None:
+                continue
+            try:
+                bucket = "positive" if float(label) > 0.5 else "negative"
+            except (TypeError, ValueError):
+                continue
+            abnormal_buckets[bucket].append(index)
+        output["by_organ_abnormal_label"] = {
+            name: _mean_sentence_scores(sentence_scores, indices) | {"count": len(indices)}
+            for name, indices in abnormal_buckets.items()
+            if indices
+        }
+        output["by_organ_abnormal_label_aggregation"] = "mean_sentence_scores"
+
         lesion_buckets: dict[str, list[int]] = {"positive": [], "negative": []}
         for index, row in enumerate(rows):
             label = row.get("lesion_label")
@@ -291,6 +343,7 @@ def _run_coco_metrics(
 ) -> tuple[dict[str, float], dict[str, list[float]]]:
     if not rows or not metrics:
         return {}, {}
+    _ensure_metric_backend_paths()
     gts, res = _build_coco_inputs(rows)
     scores: dict[str, float] = {}
     sentence_scores: dict[str, list[float]] = {}
@@ -333,15 +386,20 @@ def _run_green_metric(
     rows: list[dict[str, Any]],
     *,
     unavailable: dict[str, str],
+    green_batch_size: int,
+    green_max_new_tokens: int,
+    green_prompt_max_length: int,
 ) -> tuple[dict[str, float], dict[str, list[float]]]:
     if not rows:
         return {}, {}
     refs = [str(row["target"]).replace("\n", " ") for row in rows]
     hyps = [str(row["generated"]).replace("\n", " ") for row in rows]
     try:
-        from RadEval import RadEval
-
-        evaluator = RadEval(do_green=True, do_per_sample=True, show_progress=False)
+        evaluator = _get_green_evaluator(
+            batch_size=green_batch_size,
+            max_new_tokens=green_max_new_tokens,
+            prompt_max_length=green_prompt_max_length,
+        )
         result = evaluator(refs=refs, hyps=hyps)
         sample_scores = _to_float_list(result["green"])
     except Exception as exc:  # pragma: no cover - model/runtime dependent
@@ -350,6 +408,27 @@ def _run_green_metric(
     if not sample_scores:
         return {}, {}
     return {"GREEN": sum(sample_scores) / len(sample_scores)}, {"GREEN": sample_scores}
+
+
+def _get_green_evaluator(*, batch_size: int, max_new_tokens: int, prompt_max_length: int) -> Any:
+    global _GREEN_EVALUATOR
+    global _GREEN_EVALUATOR_SETTINGS
+    settings = (int(batch_size), int(max_new_tokens), int(prompt_max_length))
+    if _GREEN_EVALUATOR is not None and _GREEN_EVALUATOR_SETTINGS == settings:
+        return _GREEN_EVALUATOR
+    _ensure_metric_backend_paths()
+    try:
+        from radeval import RadEval
+    except Exception:
+        from RadEval import RadEval
+    _GREEN_EVALUATOR = RadEval(metrics=["green"], per_sample=True, show_progress=False)
+    scorer = getattr(_GREEN_EVALUATOR, "_scorer", None)
+    if scorer is not None:
+        scorer.batch_size = int(batch_size)
+        scorer.max_new_tokens = int(max_new_tokens)
+        scorer.prompt_max_length = int(prompt_max_length)
+    _GREEN_EVALUATOR_SETTINGS = settings
+    return _GREEN_EVALUATOR
 
 
 def _build_coco_inputs(rows: list[dict[str, Any]]) -> tuple[dict[int, list[dict[str, str]]], dict[int, list[dict[str, str]]]]:
@@ -516,6 +595,24 @@ def _resolve_tokenize(mode: str) -> tuple[bool, str]:
     if mode == "java":
         return False, "Requested Java tokenization, but no runnable 'java' executable was found; falling back to no tokenization."
     return False, "No runnable 'java' executable found; using pycocoevalcap without PTB tokenization and skipping METEOR."
+
+
+def _ensure_metric_backend_paths() -> None:
+    candidates = [
+        os.environ.get("ORGAN_SEG_CLIP_PYCOCOEVALCAP_ROOT", "").strip(),
+        DEFAULT_LOCAL_PYCOCOEVALCAP_ROOT,
+        os.environ.get("ORGAN_SEG_CLIP_RADEVAL_ROOT", "").strip(),
+        DEFAULT_LOCAL_RADEVAL_ROOT,
+    ]
+    for value in candidates:
+        if not value:
+            continue
+        target = Path(value).expanduser().resolve()
+        if not target.exists():
+            continue
+        target_str = str(target)
+        if target_str not in sys.path:
+            sys.path.insert(0, target_str)
 
 
 def _normalize_coco_metrics(metrics: list[str]) -> list[str]:

@@ -1,0 +1,25 @@
+organ: Colon
+maturity_tier: tier_1
+allow_online_expansion: true
+subtypes:
+  colon_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - The colon is normal in course and caliber.
+      - Unremarkable
+    contrast_examples:
+      - Colonic diverticulosis without evidence of diverticulitis.
+      - Mild wall thickening of the rectosigmoid colon.
+    maturity_tier: tier_1
+  colon_diverticulosis:
+    family: other_abnormal
+    canonical_label: diverticulosis
+    positive_examples:
+      - Colonic diverticulosis without evidence of diverticulitis.
+      - Diverticulosis without evidence of acute diverticulitis.
+      - Scattered colonic diverticula without diverticulitis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+    maturity_tier: tier_1

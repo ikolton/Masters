@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 from ..config.schemas import DecoderConfig
 from ..data.contracts import MerlinConvertedDataset, WholeStudySample
 from ..data.lesion_metadata import LesionMetadataLookup
+from .semantic_targets import SemanticTargetLookup
 
 
 FEATURE_CACHE_FORMAT = "organsegclip_decoder_feature_cache_v1"
@@ -49,6 +50,21 @@ class DecoderExample:
     lesion_mask: bool
     is_small_bowel: bool
     features: DecoderFeatureRecord
+    semantic_available: bool
+    semantic_weight: float
+    semantic_status: str
+    semantic_normality_target: int
+    semantic_polarity_target: int
+    semantic_primary_subtype_target: int
+    semantic_active_subtype_indices: tuple[int, ...]
+    semantic_active_subtype_weights: tuple[float, ...]
+    semantic_secondary_subtype_indices: tuple[int, ...]
+    semantic_allowed_subtype_indices: tuple[int, ...]
+    semantic_family_indices: tuple[int, ...]
+    semantic_family_weights: tuple[float, ...]
+    semantic_allowed_family_indices: tuple[int, ...]
+    semantic_subtype_vocab_size: int
+    semantic_family_vocab_size: int
 
 
 @dataclass(frozen=True)
@@ -60,10 +76,23 @@ class DecoderBatch:
     input_ids: torch.Tensor
     attention_mask: torch.Tensor
     labels: torch.Tensor
+    organ_abnormal_labels: torch.Tensor
+    organ_abnormal_mask: torch.Tensor
     lesion_labels: torch.Tensor
     lesion_mask: torch.Tensor
     small_bowel_mask: torch.Tensor
     target_texts: list[str]
+    semantic_statuses: list[str]
+    semantic_available: torch.Tensor
+    semantic_weights: torch.Tensor
+    semantic_normality_targets: torch.Tensor
+    semantic_polarity_targets: torch.Tensor
+    semantic_primary_subtype_targets: torch.Tensor
+    semantic_subtype_targets: torch.Tensor
+    semantic_secondary_subtype_targets: torch.Tensor
+    semantic_allowed_subtype_mask: torch.Tensor
+    semantic_family_targets: torch.Tensor
+    semantic_allowed_family_mask: torch.Tensor
 
 
 def load_decoder_samples(config: DecoderConfig, *, split: str, sample_seed: int | None = None) -> tuple[list[WholeStudySample], dict[str, Any]]:
@@ -93,10 +122,11 @@ class PerOrganDecoderDataset(Dataset):
         self.split = str(split)
         self.organ_names = tuple(config.data.organ_names)
         self.repeat_positives = bool(repeat_positives)
-        lesion_csv = Path(config.data.lesion_metadata_csv).expanduser() if config.data.lesion_metadata_csv else None
-        if lesion_csv is not None and not lesion_csv.is_absolute():
-            lesion_csv = Path(config.config_dir) / lesion_csv
+        lesion_csv = config.resolved_lesion_metadata_csv
         self.lesion_lookup = LesionMetadataLookup(lesion_csv, organ_names=self.organ_names)
+        self.semantic_lookup = None
+        if config.semantic_loss.enabled:
+            self.semantic_lookup = _load_semantic_lookup(config, self.organ_names)
         self.examples = self._build_examples(samples, feature_store)
         self.summary = self._summarize_examples(self.examples)
 
@@ -126,6 +156,24 @@ class PerOrganDecoderDataset(Dataset):
                     lesion_mask = True
                 if abnormal_only and not _is_abnormal_example(organ_abnormal_label, lesion_label=lesion_label, lesion_mask=lesion_mask):
                     continue
+                semantic_target = self.semantic_lookup.get(organ_name, target_text) if self.semantic_lookup is not None else None
+                allowed_subtype_indices = ()
+                allowed_family_indices = ()
+                subtype_vocab_size = 0
+                family_vocab_size = 0
+                if self.semantic_lookup is not None:
+                    allowed_subtype_indices = self.semantic_lookup.spec.organ_to_subtype_indices.get(organ_name, ())
+                    allowed_family_indices = self.semantic_lookup.spec.organ_to_family_indices.get(organ_name, ())
+                    subtype_vocab_size = len(self.semantic_lookup.spec.subtype_vocab)
+                    family_vocab_size = len(self.semantic_lookup.spec.family_vocab)
+                active_subtype_indices = () if semantic_target is None else tuple(int(value) for value in semantic_target.subtype_indices)
+                active_subtype_weights = ()
+                if semantic_target is not None:
+                    active_subtype_weights = tuple(float(semantic_target.subtype_weights.get(index, 1.0)) for index in active_subtype_indices)
+                family_indices = () if semantic_target is None else tuple(int(value) for value in semantic_target.family_indices)
+                family_weights = ()
+                if semantic_target is not None:
+                    family_weights = tuple(float(semantic_target.family_weights.get(index, 1.0)) for index in family_indices)
                 examples.append(
                     DecoderExample(
                         study_id=sample.study_id,
@@ -137,6 +185,21 @@ class PerOrganDecoderDataset(Dataset):
                         lesion_mask=lesion_mask,
                         is_small_bowel=(organ_name == "Small bowel"),
                         features=features,
+                        semantic_available=semantic_target is not None and float(semantic_target.sample_weight) > 0.0,
+                        semantic_weight=0.0 if semantic_target is None else float(semantic_target.sample_weight),
+                        semantic_status="" if semantic_target is None else str(semantic_target.decision_status),
+                        semantic_normality_target=-100 if semantic_target is None else int(semantic_target.normality_index),
+                        semantic_polarity_target=-100 if semantic_target is None else int(semantic_target.polarity_index),
+                        semantic_primary_subtype_target=-100 if semantic_target is None else int(semantic_target.primary_subtype_index),
+                        semantic_active_subtype_indices=active_subtype_indices,
+                        semantic_active_subtype_weights=active_subtype_weights,
+                        semantic_secondary_subtype_indices=() if semantic_target is None else tuple(int(value) for value in semantic_target.secondary_subtype_indices),
+                        semantic_allowed_subtype_indices=tuple(int(value) for value in allowed_subtype_indices),
+                        semantic_family_indices=family_indices,
+                        semantic_family_weights=family_weights,
+                        semantic_allowed_family_indices=tuple(int(value) for value in allowed_family_indices),
+                        semantic_subtype_vocab_size=int(subtype_vocab_size),
+                        semantic_family_vocab_size=int(family_vocab_size),
                     )
                 )
         if not self.repeat_positives:
@@ -153,6 +216,8 @@ class PerOrganDecoderDataset(Dataset):
         unknown = 0
         lesion_positive = 0
         lesion_labeled = 0
+        semantic_available = 0
+        semantic_provisional = 0
         for example in examples:
             if example.organ_abnormal_label == 1:
                 abnormal += 1
@@ -164,6 +229,10 @@ class PerOrganDecoderDataset(Dataset):
                 lesion_labeled += 1
                 if example.lesion_label > 0.5:
                     lesion_positive += 1
+            if example.semantic_available:
+                semantic_available += 1
+            if example.semantic_status == "accepted_provisional":
+                semantic_provisional += 1
         return {
             "example_count": int(len(examples)),
             "abnormal_label_positive_count": int(abnormal),
@@ -171,6 +240,8 @@ class PerOrganDecoderDataset(Dataset):
             "abnormal_label_unknown_count": int(unknown),
             "lesion_labeled_count": int(lesion_labeled),
             "lesion_positive_count": int(lesion_positive),
+            "semantic_available_count": int(semantic_available),
+            "semantic_provisional_count": int(semantic_provisional),
         }
 
 
@@ -209,14 +280,37 @@ def collate_decoder_batch(
     organ_names: list[str] = []
     organ_indices: list[int] = []
     target_texts: list[str] = []
+    organ_abnormal_labels: list[float] = []
+    organ_abnormal_mask: list[bool] = []
     lesion_labels: list[float] = []
     lesion_mask: list[bool] = []
     small_bowel_mask: list[bool] = []
+    semantic_available: list[bool] = []
+    semantic_weights: list[float] = []
+    semantic_statuses: list[str] = []
+    semantic_normality_targets: list[int] = []
+    semantic_polarity_targets: list[int] = []
+    semantic_primary_targets: list[int] = []
 
     eos = getattr(tokenizer, "eos_token", None) or ""
     pad_token_id = getattr(tokenizer, "pad_token_id", None)
     if pad_token_id is None:
         pad_token_id = getattr(tokenizer, "eos_token_id", 0)
+    subtype_dim = 0
+    family_dim = 0
+    for example in batch:
+        subtype_dim = max(subtype_dim, int(example.semantic_subtype_vocab_size))
+        family_dim = max(family_dim, int(example.semantic_family_vocab_size))
+        if example.semantic_allowed_subtype_indices:
+            subtype_dim = max(subtype_dim, max(example.semantic_allowed_subtype_indices) + 1)
+        if example.semantic_active_subtype_indices:
+            subtype_dim = max(subtype_dim, max(example.semantic_active_subtype_indices) + 1)
+        if example.semantic_secondary_subtype_indices:
+            subtype_dim = max(subtype_dim, max(example.semantic_secondary_subtype_indices) + 1)
+        if example.semantic_allowed_family_indices:
+            family_dim = max(family_dim, max(example.semantic_allowed_family_indices) + 1)
+        if example.semantic_family_indices:
+            family_dim = max(family_dim, max(example.semantic_family_indices) + 1)
     for example in batch:
         prompt = prompt_template.format(organ=example.organ_name)
         target = f"{example.target_text}{eos}"
@@ -231,9 +325,17 @@ def collate_decoder_batch(
         organ_names.append(example.organ_name)
         organ_indices.append(int(example.organ_index))
         target_texts.append(example.target_text)
+        organ_abnormal_labels.append(0.0 if example.organ_abnormal_label is None else float(example.organ_abnormal_label))
+        organ_abnormal_mask.append(example.organ_abnormal_label is not None)
         lesion_labels.append(float(example.lesion_label))
         lesion_mask.append(bool(example.lesion_mask))
         small_bowel_mask.append(bool(example.is_small_bowel))
+        semantic_available.append(bool(example.semantic_available))
+        semantic_weights.append(float(example.semantic_weight))
+        semantic_statuses.append(str(example.semantic_status))
+        semantic_normality_targets.append(int(example.semantic_normality_target))
+        semantic_polarity_targets.append(int(example.semantic_polarity_target))
+        semantic_primary_targets.append(int(example.semantic_primary_subtype_target))
 
     text_length = max(row.numel() for row in input_id_rows)
     visual_length = max(row.shape[0] for row in visual_rows)
@@ -242,11 +344,26 @@ def collate_decoder_batch(
     labels = torch.full((len(batch), text_length), -100, dtype=torch.long)
     attention_mask = torch.zeros((len(batch), text_length), dtype=torch.long)
     visual_features = torch.zeros((len(batch), visual_length, visual_dim), dtype=torch.float32)
+    semantic_subtype_targets = torch.zeros((len(batch), subtype_dim), dtype=torch.float32)
+    semantic_secondary_subtype_targets = torch.zeros((len(batch), subtype_dim), dtype=torch.float32)
+    semantic_allowed_subtype_mask = torch.zeros((len(batch), subtype_dim), dtype=torch.bool)
+    semantic_family_targets = torch.zeros((len(batch), family_dim), dtype=torch.float32)
+    semantic_allowed_family_mask = torch.zeros((len(batch), family_dim), dtype=torch.bool)
     for row_index, (ids, row_labels, visual) in enumerate(zip(input_id_rows, label_rows, visual_rows)):
         input_ids[row_index, : ids.numel()] = ids
         labels[row_index, : row_labels.numel()] = row_labels
         attention_mask[row_index, : ids.numel()] = 1
         visual_features[row_index, : visual.shape[0]] = visual
+        for subtype_index, weight in zip(batch[row_index].semantic_active_subtype_indices, batch[row_index].semantic_active_subtype_weights):
+            semantic_subtype_targets[row_index, int(subtype_index)] = float(weight)
+        for subtype_index in batch[row_index].semantic_secondary_subtype_indices:
+            semantic_secondary_subtype_targets[row_index, int(subtype_index)] = 1.0
+        for subtype_index in batch[row_index].semantic_allowed_subtype_indices:
+            semantic_allowed_subtype_mask[row_index, int(subtype_index)] = True
+        for family_index, weight in zip(batch[row_index].semantic_family_indices, batch[row_index].semantic_family_weights):
+            semantic_family_targets[row_index, int(family_index)] = float(weight)
+        for family_index in batch[row_index].semantic_allowed_family_indices:
+            semantic_allowed_family_mask[row_index, int(family_index)] = True
     return DecoderBatch(
         study_ids=study_ids,
         organ_names=organ_names,
@@ -255,10 +372,23 @@ def collate_decoder_batch(
         input_ids=input_ids,
         attention_mask=attention_mask,
         labels=labels,
+        organ_abnormal_labels=torch.tensor(organ_abnormal_labels, dtype=torch.float32),
+        organ_abnormal_mask=torch.tensor(organ_abnormal_mask, dtype=torch.bool),
         lesion_labels=torch.tensor(lesion_labels, dtype=torch.float32),
         lesion_mask=torch.tensor(lesion_mask, dtype=torch.bool),
         small_bowel_mask=torch.tensor(small_bowel_mask, dtype=torch.bool),
         target_texts=target_texts,
+        semantic_statuses=semantic_statuses,
+        semantic_available=torch.tensor(semantic_available, dtype=torch.bool),
+        semantic_weights=torch.tensor(semantic_weights, dtype=torch.float32),
+        semantic_normality_targets=torch.tensor(semantic_normality_targets, dtype=torch.long),
+        semantic_polarity_targets=torch.tensor(semantic_polarity_targets, dtype=torch.long),
+        semantic_primary_subtype_targets=torch.tensor(semantic_primary_targets, dtype=torch.long),
+        semantic_subtype_targets=semantic_subtype_targets,
+        semantic_secondary_subtype_targets=semantic_secondary_subtype_targets,
+        semantic_allowed_subtype_mask=semantic_allowed_subtype_mask,
+        semantic_family_targets=semantic_family_targets,
+        semantic_allowed_family_mask=semantic_allowed_family_mask,
     )
 
 
@@ -281,6 +411,33 @@ def decoder_collate_fn(
         )
 
     return _collate
+
+
+def _load_semantic_lookup(config: DecoderConfig, organ_names: Sequence[str]) -> SemanticTargetLookup | None:
+    training_targets = config.resolved_semantic_training_targets_jsonl
+    training_vocab = config.resolved_semantic_training_vocab_json
+    if training_targets is not None or training_vocab is not None:
+        if training_targets is None or training_vocab is None:
+            raise ValueError("semantic_loss.training_targets_jsonl and semantic_loss.training_vocab_json must be configured together.")
+        return SemanticTargetLookup.from_training_targets(
+            targets_path=training_targets,
+            vocab_path=training_vocab,
+            organ_names=organ_names,
+            accepted_sample_weight=float(config.semantic_loss.accepted_sample_weight),
+            provisional_sample_weight=float(config.semantic_loss.provisional_sample_weight),
+            unresolved_sample_weight=float(config.semantic_loss.unresolved_sample_weight),
+            use_confidence_scaling=bool(config.semantic_loss.use_confidence_scaling),
+            include_review_required=bool(config.semantic_loss.include_review_required),
+            review_required_sample_weight=float(config.semantic_loss.review_required_sample_weight),
+        )
+    return SemanticTargetLookup.from_jsonl_paths(
+        config.resolved_semantic_target_jsonl_paths,
+        organ_names=organ_names,
+        accepted_sample_weight=float(config.semantic_loss.accepted_sample_weight),
+        provisional_sample_weight=float(config.semantic_loss.provisional_sample_weight),
+        unresolved_sample_weight=float(config.semantic_loss.unresolved_sample_weight),
+        use_confidence_scaling=bool(config.semantic_loss.use_confidence_scaling),
+    )
 
 
 def save_feature_store(path: str | Path, store: DecoderFeatureStore) -> Path:

@@ -55,10 +55,16 @@ class OrganSegOutput:
     organ_attention_count: int
     organ_attention_positive_count: int
     organ_attention_negative_count: int
+    segmentation_foreground_dice: float = 0.0
+    segmentation_foreground_patch_count: int = 0
     patches_per_batch_total: int = 0
     patches_per_study_mean: float = 0.0
     patches_per_study_max: int = 0
     segmentation_oom_fallback_count: int = 0
+    organ_image_features: torch.Tensor | None = None
+    organ_text_features: torch.Tensor | None = None
+    report_image_features: torch.Tensor | None = None
+    report_text_features: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)

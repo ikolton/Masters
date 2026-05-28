@@ -1,0 +1,38 @@
+paths:
+  merlin_repo: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin
+  dataset_root: /net/storage/pr3/plgrid/plggjmiag/Merlin_converted
+  metadata_csv: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin_metadata_hf_clean.csv
+  semantic_targets_jsonl: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/semantic_training_targets_v3.jsonl
+  semantic_vocab_json: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/training_vocab_v3_clean.json
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/models_ablations/merlin
+  cache_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/models_ablations/merlin/cache
+data:
+  train_split: train_subset
+  val_split: val_subset
+  organ_names: [Liver, Pancreas, Kidneys, Gallbladder]
+  train_limit: 4
+  val_limit: 2
+  sample_seed: 13
+model:
+  freeze_image_encoder: true
+  train_adapter: true
+  train_decoder_lora: true
+  max_length: 512
+  merlin_load_cwd: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin
+losses:
+  ce_weight: 1.0
+  lexical_weight: 0.002
+  semantic_weight: 0.0
+  semantic_variant: family
+train:
+  run_id: smoke_lexical_w002
+  epochs: 1
+  max_steps: 1
+  batch_size: 1
+  num_workers: 0
+  learning_rate: 0.00001
+  log_every: 1
+  save_checkpoint: false
+  mixed_precision: bf16
+  device: cuda
+

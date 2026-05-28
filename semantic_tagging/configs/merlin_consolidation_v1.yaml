@@ -1,0 +1,41 @@
+project:
+  dataset_id: merlin_converted
+  consolidation_id: consolidation_v1
+
+paths:
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging
+
+source_runs:
+  base:
+    run_id: vllm_full
+    decision_file: validated_decisions.partial.jsonl
+  organ_overrides:
+    Colon:
+      run_id: vllm_targeted_v3_candidate
+      decision_file: validated_decisions.partial.jsonl
+    Gallbladder:
+      run_id: vllm_targeted_v4_candidate
+      decision_file: validated_decisions.partial.jsonl
+    Kidneys:
+      run_id: vllm_targeted_v3_candidate
+      decision_file: validated_decisions.partial.jsonl
+    Small bowel:
+      run_id: vllm_targeted_v3_candidate
+      decision_file: validated_decisions.partial.jsonl
+
+consolidation:
+  min_direct_count: 100
+  min_review_count: 20
+  examples_per_tag: 8
+  candidate_label_limit: 40
+  include_normal_tags: true
+  llm:
+    model_name: meta-llama/Llama-3.3-70B-Instruct
+    base_url: http://127.0.0.1:8000/v1
+    api_key_env: VLLM_API_KEY
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 384
+    request_concurrency: 32
+    request_retries: 4
+    retry_backoff_seconds: 2.0

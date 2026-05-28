@@ -1,0 +1,44 @@
+organ: Urinary bladder
+maturity_tier: tier_3
+allow_online_expansion: true
+subtypes:
+  urinary_bladder_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The urinary bladder is well-distended with no wall thickening or masses.
+      - The urinary bladder is normal.
+      - The bladder appears normal.
+    contrast_examples:
+      - Mild bladder wall thickening.
+      - Enhancing eccentric soft tissue mass in the right lateral aspect of the bladder measuring 1.3 x 2.5 cm.
+    maturity_tier: tier_3
+  urinary_bladder_absent_postop:
+    family: absent_postop
+    canonical_label: surgically absent
+    positive_examples:
+      - Surgically absent.
+    contrast_examples:
+      - The urinary bladder is well-distended with no wall thickening or masses.
+    maturity_tier: tier_2
+  urinary_bladder_wall_thickening:
+    family: inflammatory_thickening
+    canonical_label: bladder wall thickening
+    positive_examples:
+      - Mild bladder wall thickening.
+      - Circumferential bladder wall thickening.
+      - Diffuse bladder wall thickening.
+    contrast_examples:
+      - The urinary bladder is well-distended with no wall thickening or masses.
+      - Enhancing eccentric soft tissue mass in the right lateral aspect of the bladder measuring 1.3 x 2.5 cm.
+    maturity_tier: tier_3
+  urinary_bladder_mass:
+    family: focal_lesion
+    canonical_label: bladder mass
+    positive_examples:
+      - Enhancing eccentric soft tissue mass in the right lateral aspect of the bladder measuring 1.3 x 2.5 cm.
+      - Nodularity along the bladder surface.
+    contrast_examples:
+      - Mild bladder wall thickening.
+      - The urinary bladder is normal.
+    maturity_tier: tier_2

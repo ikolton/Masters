@@ -1,0 +1,48 @@
+paths:
+  merlin_repo: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin
+  dataset_root: /net/storage/pr3/plgrid/plggjmiag/Merlin_converted
+  metadata_csv: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin_metadata_hf_clean.csv
+  semantic_targets_jsonl: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/semantic_training_targets_v3.jsonl
+  semantic_vocab_json: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/training_vocab_v3_clean.json
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/models_ablations/merlin
+  cache_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/models_ablations/merlin/cache
+  image_embedding_cache_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/models_ablations/merlin/image_embedding_cache
+data:
+  train_split: train
+  val_split: val
+  train_limit:
+  val_limit:
+  sample_seed: 13
+  include_review_required_semantic_targets: false
+model:
+  freeze_image_encoder: true
+  train_adapter: true
+  train_decoder_lora: true
+  max_length: 512
+  merlin_load_cwd: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin
+  image_embedding_mode: cached
+  append_eos_to_target: true
+losses:
+  ce_weight: 1.0
+  lexical_weight: 0.002
+  lexical_mode: concept_specific
+  lexical_target_cache: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/diagnostic_lexicon/merlin_converted/lexical_diag_v1_from_semantic_v3_merlin_radllama/tokenized_concept_lexical_targets_v1.pt
+  negative_temperature: 8.0
+  positive_pathology_weight: 1.0
+  negative_pathology_weight: 0.5
+  semantic_weight: 0.0
+  semantic_variant: family
+train:
+  run_id: real2_eos_concept_lexical_v1_5_w002_bs16_len512
+  epochs: 2
+  max_steps:
+  batch_size: 16
+  num_workers: 0
+  learning_rate: 0.00001
+  grad_accum_steps: 1
+  log_every: 50
+  save_checkpoint: true
+  save_trainable_checkpoint: true
+  eval_every_epochs: 1
+  mixed_precision: bf16
+  device: cuda

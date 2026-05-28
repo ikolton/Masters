@@ -1,0 +1,48 @@
+organ: Liver
+maturity_tier: tier_3
+allow_online_expansion: true
+subtypes:
+  liver_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The liver is normal in size with smooth contours. No focal hepatic lesions, biliary dilatation, or steatosis.
+      - The liver is normal in size, contour and attenuation. No focal hepatic mass. No intrahepatic biliary dilatation.
+      - Liver and biliary tree: normal.
+    contrast_examples:
+      - Hepatic steatosis.
+      - Multiple liver cysts.
+      - 5 mm hypodensity in the periphery of the right hepatic lobe, too small to characterize.
+    maturity_tier: tier_3
+  liver_steatosis:
+    family: steatosis_fatty_change
+    canonical_label: hepatic steatosis
+    positive_examples:
+      - Hepatic steatosis.
+      - Diffuse low-attenuation of the liver, consistent with hepatic steatosis.
+    contrast_examples:
+      - The liver is normal in size with smooth contours. No focal hepatic lesions, biliary dilatation, or steatosis.
+      - Multiple liver cysts.
+    maturity_tier: tier_3
+  liver_cystic_lesion:
+    family: cystic_lesion
+    canonical_label: hepatic cysts
+    positive_examples:
+      - Multiple liver cysts.
+      - Hepatic cysts measuring up to 1.1 cm in the left liver lobe.
+      - Subcentimeter hypodensity in segment 6, likely represents a cyst.
+    contrast_examples:
+      - 5 mm hypodensity in the periphery of the right hepatic lobe, too small to characterize.
+      - Hepatic steatosis.
+    maturity_tier: tier_3
+  liver_indeterminate_hypodensity:
+    family: focal_lesion
+    canonical_label: indeterminate hepatic hypodensity
+    positive_examples:
+      - 5 mm hypodensity in the periphery of the right hepatic lobe, too small to characterize.
+      - Subcentimeter hypodensities in the liver, too small to characterize.
+      - Hypodensity within segment 2. Additional hypodensities noted elsewhere.
+    contrast_examples:
+      - Multiple liver cysts.
+      - Hepatic steatosis.
+    maturity_tier: tier_3

@@ -1,0 +1,33 @@
+organ: Gallbladder
+maturity_tier: tier_1
+allow_online_expansion: true
+subtypes:
+  gallbladder_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+      - The gallbladder is unremarkable without evidence of radiopaque gallstones, gallbladder wall thickening or pericholecystic fluid.
+    contrast_examples:
+      - The gallbladder is surgically absent.
+      - Gallstones without CT findings of cholecystitis.
+    maturity_tier: tier_1
+  gallbladder_absent_postop:
+    family: absent_postop
+    canonical_label: surgically absent
+    positive_examples:
+      - The gallbladder is surgically absent.
+      - Status post cholecystectomy.
+      - Gallbladder surgically absent.
+    contrast_examples:
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+    maturity_tier: tier_2
+  gallbladder_gallstones:
+    family: other_abnormal
+    canonical_label: gallstones
+    positive_examples:
+      - Gallstones without CT findings of cholecystitis.
+    contrast_examples:
+      - The gallbladder is surgically absent.
+      - The gallbladder has a normal caliber. No wall thickening, pericholecystic fluid, or gallstones.
+    maturity_tier: tier_1

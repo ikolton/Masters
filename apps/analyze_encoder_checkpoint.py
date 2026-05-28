@@ -101,6 +101,16 @@ def main() -> None:
         "organ_representation_analysis": _organ_representation_analysis(
             val_pack,
             organ_names=tuple(config.data.organ_names),
+            embedding_key="organ_image",
+        ),
+        "organ_representation_pre_projection_analysis": _organ_representation_analysis(
+            val_pack,
+            organ_names=tuple(config.data.organ_names),
+            embedding_key="organ_image_pre_projection",
+        ),
+        "organ_representation_projection_comparison": _projection_comparison(
+            val_pack,
+            organ_names=tuple(config.data.organ_names),
         ),
         "frozen_probes": _probe_metrics(
             train_pack,
@@ -171,11 +181,18 @@ def _collect_split(
                 text_emb = F.normalize(outputs.organ_text_embeddings.detach().cpu(), dim=-1)
                 chunks["organ_image"].append(image_emb[mask])
                 chunks["organ_text"].append(text_emb[mask])
+                if outputs.organ_image_features is not None:
+                    image_pre = F.normalize(outputs.organ_image_features.detach().cpu(), dim=-1)
+                    chunks["organ_image_pre_projection"].append(image_pre[mask])
+                if outputs.organ_text_features is not None:
+                    text_pre = F.normalize(outputs.organ_text_features.detach().cpu(), dim=-1)
+                    chunks["organ_text_pre_projection"].append(text_pre[mask])
                 report_emb = F.normalize(outputs.report_image_embeddings.detach().cpu(), dim=-1)
                 chunks["report_image"].append(report_emb)
             else:
                 organ_emb = F.normalize(outputs.organ_embeddings.detach().cpu(), dim=-1)
                 chunks["organ_image"].append(organ_emb[mask])
+                chunks["organ_image_pre_projection"].append(organ_emb[mask])
                 report_emb = F.normalize(outputs.report_embedding.detach().cpu(), dim=-1)
                 chunks["report_image"].append(report_emb)
             chunks["organ_labels"].append(batch.organ_labels.detach().cpu()[mask])
@@ -394,21 +411,28 @@ def _same_organ_analysis(pack: dict[str, Any], *, organ_names: tuple[str, ...]) 
     }
 
 
-def _organ_representation_analysis(pack: dict[str, Any], *, organ_names: tuple[str, ...]) -> dict[str, Any]:
+def _organ_representation_analysis(
+    pack: dict[str, Any],
+    *,
+    organ_names: tuple[str, ...],
+    embedding_key: str,
+) -> dict[str, Any]:
     """Analyze image-only organ embeddings as geometric objects.
 
     This section is intentionally decoder-oriented: it only uses the image ->
     embedding pathway (`organ_image`) and measures whether organ embeddings vary
     meaningfully across studies and labels.
     """
-    organ_embeddings = pack["organ_image"]
+    organ_embeddings = pack.get(embedding_key)
     organ_ids = pack["organ_ids"]
     diagnostic_labels = pack["organ_labels"].reshape(-1)
     diagnostic_mask = pack["organ_label_mask"].reshape(-1).bool()
     lesion_labels = pack["lesion_organ_labels"].reshape(-1)
     lesion_mask = pack["lesion_organ_mask"].reshape(-1).bool()
+    if organ_embeddings is None:
+        return {"available": False, "reason": f"missing embeddings for {embedding_key}"}
     if organ_embeddings.numel() == 0 or organ_ids.numel() == 0:
-        return {"valid_organs": 0}
+        return {"available": True, "valid_organs": 0}
 
     embedding_count = int(organ_embeddings.shape[0])
     cosine_similarity = organ_embeddings @ organ_embeddings.T
@@ -453,6 +477,8 @@ def _organ_representation_analysis(pack: dict[str, Any], *, organ_names: tuple[s
     centroid_euclidean = torch.cdist(centroid_stack, centroid_stack, p=2) if centroid_stack.numel() else torch.empty(0)
 
     return {
+        "available": True,
+        "embedding_key": embedding_key,
         "valid_organs": embedding_count,
         "same_organ_cosine_mean": _masked_mean(cosine_similarity, same_organ & non_self),
         "same_organ_cosine_std": _masked_std(cosine_similarity, same_organ & non_self),
@@ -473,9 +499,67 @@ def _organ_representation_analysis(pack: dict[str, Any], *, organ_names: tuple[s
     }
 
 
+def _projection_comparison(pack: dict[str, Any], *, organ_names: tuple[str, ...]) -> dict[str, Any]:
+    pre = _organ_representation_analysis(pack, organ_names=organ_names, embedding_key="organ_image_pre_projection")
+    post = _organ_representation_analysis(pack, organ_names=organ_names, embedding_key="organ_image")
+    if not pre.get("available", True):
+        return {
+            "available": False,
+            "reason": pre.get("reason", "pre-projection embeddings unavailable"),
+        }
+    if not post.get("available", True):
+        return {
+            "available": False,
+            "reason": post.get("reason", "post-projection embeddings unavailable"),
+        }
+    return {
+        "available": True,
+        "same_minus_different_cosine_margin": {
+            "pre_projection": _float_or_none(pre.get("same_minus_different_cosine_margin")),
+            "post_projection": _float_or_none(post.get("same_minus_different_cosine_margin")),
+            "delta_post_minus_pre": _float_diff(
+                _float_or_none(post.get("same_minus_different_cosine_margin")),
+                _float_or_none(pre.get("same_minus_different_cosine_margin")),
+            ),
+        },
+        "different_minus_same_euclidean_margin": {
+            "pre_projection": _float_or_none(pre.get("different_minus_same_euclidean_margin")),
+            "post_projection": _float_or_none(post.get("different_minus_same_euclidean_margin")),
+            "delta_post_minus_pre": _float_diff(
+                _float_or_none(post.get("different_minus_same_euclidean_margin")),
+                _float_or_none(pre.get("different_minus_same_euclidean_margin")),
+            ),
+        },
+        "organ_centroid_cosine_distance": {
+            "pre_projection": pre.get("organ_centroid_cosine_distance"),
+            "post_projection": post.get("organ_centroid_cosine_distance"),
+        },
+        "per_organ_margin_delta": {
+            organ_name: {
+                "cosine_mean_all_pairs_post_minus_pre": _float_diff(
+                    _float_or_none(post.get("per_organ", {}).get(organ_name, {}).get("cosine_mean_all_pairs")),
+                    _float_or_none(pre.get("per_organ", {}).get(organ_name, {}).get("cosine_mean_all_pairs")),
+                ),
+                "diagnostic_balanced_accuracy_post_minus_pre": _float_diff(
+                    _nested_float(post, "per_organ", organ_name, "diagnostic_label_analysis", "balanced_accuracy"),
+                    _nested_float(pre, "per_organ", organ_name, "diagnostic_label_analysis", "balanced_accuracy"),
+                ),
+                "lesion_balanced_accuracy_post_minus_pre": _float_diff(
+                    _nested_float(post, "per_organ", organ_name, "lesion_label_analysis", "balanced_accuracy"),
+                    _nested_float(pre, "per_organ", organ_name, "lesion_label_analysis", "balanced_accuracy"),
+                ),
+            }
+            for organ_name in organ_names
+            if organ_name in pre.get("per_organ", {}) and organ_name in post.get("per_organ", {})
+        },
+    }
+
+
 def _build_summary(result: dict[str, Any]) -> dict[str, Any]:
     frozen_probes = result.get("frozen_probes", {})
     organ_analysis = result.get("organ_representation_analysis", {})
+    pre_projection = result.get("organ_representation_pre_projection_analysis", {})
+    projection_comparison = result.get("organ_representation_projection_comparison", {})
     same_organ = result.get("same_organ_analysis", {})
     val_losses = result.get("val_losses", {})
 
@@ -506,6 +590,20 @@ def _build_summary(result: dict[str, Any]) -> dict[str, Any]:
             "same_organ_euclidean_mean": _float_or_none(organ_analysis.get("same_organ_euclidean_mean")),
             "different_organ_euclidean_mean": _float_or_none(organ_analysis.get("different_organ_euclidean_mean")),
             "different_minus_same_euclidean_margin": _float_or_none(organ_analysis.get("different_minus_same_euclidean_margin")),
+        },
+        "projection_effect": {
+            "available": bool(projection_comparison.get("available", False)),
+            "pre_projection_same_minus_different_cosine_margin": _float_or_none(pre_projection.get("same_minus_different_cosine_margin")),
+            "post_projection_same_minus_different_cosine_margin": _nested_float(
+                projection_comparison,
+                "same_minus_different_cosine_margin",
+                "post_projection",
+            ),
+            "cosine_margin_delta_post_minus_pre": _nested_float(
+                projection_comparison,
+                "same_minus_different_cosine_margin",
+                "delta_post_minus_pre",
+            ),
         },
         "same_organ_retrieval": {
             "available": bool(same_organ.get("available", True)),
@@ -717,6 +815,12 @@ def _float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _float_diff(lhs: float | None, rhs: float | None) -> float | None:
+    if lhs is None or rhs is None:
+        return None
+    return float(lhs - rhs)
 
 
 def _nested_float(mapping: dict[str, Any], *keys: str) -> float | None:

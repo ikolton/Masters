@@ -1,0 +1,37 @@
+organ: Stomach
+maturity_tier: tier_3
+allow_online_expansion: true
+subtypes:
+  stomach_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - Unremarkable
+      - The stomach shows normal wall thickness with no distension or masses.
+      - The stomach is grossly normal.
+    contrast_examples:
+      - Marked gastric wall thickening in the region of the pylorus and antrum.
+      - Enhancing submucosal mass in the anterior lower gastric body measures 1.4 x 1.5 x 1.8 cm.
+    maturity_tier: tier_3
+  stomach_wall_thickening:
+    family: inflammatory_thickening
+    canonical_label: gastric wall thickening
+    positive_examples:
+      - Marked gastric wall thickening in the region of the pylorus and antrum.
+      - Circumferential thickening of the gastric antrum with thickness up to 1.5 cm.
+      - Diffuse thickening of the stomach, most pronounced along the lesser curvature.
+    contrast_examples:
+      - Enhancing submucosal mass in the anterior lower gastric body measures 1.4 x 1.5 x 1.8 cm.
+      - The stomach shows normal wall thickness with no distension or masses.
+    maturity_tier: tier_3
+  stomach_mass:
+    family: focal_lesion
+    canonical_label: gastric mass
+    positive_examples:
+      - Enhancing submucosal mass in the anterior lower gastric body measures 1.4 x 1.5 x 1.8 cm.
+      - Known mass within the greater curvature measuring approximately 6.4 x 3.4 cm with an area of ulceration.
+      - Asymmetric thickening of the gastric antrum with nodular soft tissue contiguous with this mass.
+    contrast_examples:
+      - Marked gastric wall thickening in the region of the pylorus and antrum.
+      - The stomach is grossly normal.
+    maturity_tier: tier_3

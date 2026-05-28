@@ -56,9 +56,19 @@ class DataConfig:
     organ_names: tuple[str, ...] = DEFAULT_ORGANS
     verify_metadata: bool = True
     lesion_metadata_csv: str = ""
+    lesion_metadata_csv_env: str = "ORGAN_SEG_CLIP_LESION_METADATA_CSV"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "organ_names", tuple(self.organ_names))
+
+    def resolve_lesion_metadata_csv(self, config_dir: Path) -> Path | None:
+        value = self.lesion_metadata_csv or os.environ.get(self.lesion_metadata_csv_env, "")
+        if not str(value).strip():
+            return None
+        target = Path(value)
+        if not target.is_absolute():
+            target = config_dir / target
+        return target.expanduser().resolve()
 
 
 @dataclass(frozen=True)
@@ -114,6 +124,7 @@ class TextEncoderConfig:
     organ_text_template: str = "{organ}: {finding}"
     cache_frozen_outputs: bool = True
     cache_max_entries: int = 100000
+    disk_cache_path: str | None = None
 
     def __post_init__(self) -> None:
         if self.backend_family not in {"pubmedbert", "hash"}:
@@ -124,6 +135,8 @@ class TextEncoderConfig:
         object.__setattr__(self, "cache_max_entries", int(self.cache_max_entries))
         if self.cache_max_entries < 0:
             raise ValueError("text_encoder.cache_max_entries must be non-negative.")
+        if self.disk_cache_path is not None:
+            object.__setattr__(self, "disk_cache_path", str(self.disk_cache_path))
         if self.report_max_tokens is not None:
             object.__setattr__(self, "report_max_tokens", int(self.report_max_tokens))
 
@@ -220,9 +233,15 @@ class AlignmentProjectionConfig:
 class OrgansConfig:
     diagnostic_dropout: float = 0.0
     patch_organ_min_voxels: int = 64
+    organ_logit_scale_init: float = 10.0
+    organ_logit_bias_init: float = -10.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "patch_organ_min_voxels", int(self.patch_organ_min_voxels))
+        object.__setattr__(self, "organ_logit_scale_init", float(self.organ_logit_scale_init))
+        object.__setattr__(self, "organ_logit_bias_init", float(self.organ_logit_bias_init))
+        if float(self.organ_logit_scale_init) <= 0.0:
+            raise ValueError("model.organs.organ_logit_scale_init must be positive.")
 
 
 @dataclass(frozen=True)
@@ -259,6 +278,8 @@ class LossConfig:
     organ_frequency_balance_min: float = 0.25
     organ_frequency_balance_max: float = 4.0
     segmentation_loss_type: str = "dice_ce"
+    siglip_soft_positive_threshold: float | None = None
+    siglip_hard_negative_weight: float = 1.0
 
     def __post_init__(self) -> None:
         if self.segmentation_loss_type not in {"ce", "dice_ce"}:
@@ -281,6 +302,14 @@ class LossConfig:
             raise ValueError("loss.organ_frequency_balance_min must be positive.")
         if self.organ_frequency_balance_max < self.organ_frequency_balance_min:
             raise ValueError("loss.organ_frequency_balance_max must be >= loss.organ_frequency_balance_min.")
+        if self.siglip_soft_positive_threshold is not None:
+            threshold = float(self.siglip_soft_positive_threshold)
+            if not (0.0 < threshold < 1.0):
+                raise ValueError("loss.siglip_soft_positive_threshold must be in (0, 1) when set.")
+            object.__setattr__(self, "siglip_soft_positive_threshold", threshold)
+        object.__setattr__(self, "siglip_hard_negative_weight", float(self.siglip_hard_negative_weight))
+        if float(self.siglip_hard_negative_weight) < 1.0:
+            raise ValueError("loss.siglip_hard_negative_weight must be >= 1.0.")
         if self.organ_alignment_weight is None:
             object.__setattr__(self, "organ_alignment_weight", float(self.organ_clip_weight))
         else:
@@ -327,12 +356,21 @@ class TrainingConfig:
     save_every_epochs: int = 1
     save_last_checkpoint: bool = True
     save_best_checkpoint: bool = True
-    best_checkpoint_metric: str = "val_total_loss"
+    best_checkpoint_metric: str = "full_val_organ_alignment_loss"
     ddp_find_unused_parameters: bool = False
     resume_from: str | None = None
+    warm_start_from: str | None = None
+    patch_encoder_learning_rate_scale: float = 1.0
+    early_stopping_patience: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "alignment_parameter_names", tuple(str(value) for value in self.alignment_parameter_names))
+        object.__setattr__(self, "patch_encoder_learning_rate_scale", float(self.patch_encoder_learning_rate_scale))
+        if float(self.patch_encoder_learning_rate_scale) <= 0.0:
+            raise ValueError("training.patch_encoder_learning_rate_scale must be positive.")
+        object.__setattr__(self, "early_stopping_patience", int(self.early_stopping_patience))
+        if int(self.early_stopping_patience) < 0:
+            raise ValueError("training.early_stopping_patience must be non-negative.")
         scheduler_type = str(self.scheduler_type).strip().lower()
         scheduler_interval = str(self.scheduler_interval).strip().lower()
         amp_dtype = str(self.amp_dtype).strip().lower()
@@ -436,6 +474,7 @@ class DecoderDataConfig:
     organ_names: tuple[str, ...] = DEFAULT_ORGANS
     verify_metadata: bool = True
     lesion_metadata_csv: str = ""
+    lesion_metadata_csv_env: str = "ORGAN_SEG_CLIP_LESION_METADATA_CSV"
     train_abnormal_only: bool = False
     val_abnormal_only: bool = False
     lesion_positive_repeat_factor: int = 1
@@ -450,6 +489,15 @@ class DecoderDataConfig:
         if self.abnormal_label_repeat_factor < 1:
             raise ValueError("data.abnormal_label_repeat_factor must be >= 1.")
 
+    def resolve_lesion_metadata_csv(self, config_dir: Path) -> Path | None:
+        value = self.lesion_metadata_csv or os.environ.get(self.lesion_metadata_csv_env, "")
+        if not str(value).strip():
+            return None
+        target = Path(value)
+        if not target.is_absolute():
+            target = config_dir / target
+        return target.expanduser().resolve()
+
 
 @dataclass(frozen=True)
 class DecoderModelConfig:
@@ -461,6 +509,7 @@ class DecoderModelConfig:
     freeze_llm: bool = True
     gradient_checkpointing: bool = True
     torch_dtype: str = "auto"
+    visual_projector_depth: int = 1
 
     def __post_init__(self) -> None:
         allowed_modes = {
@@ -473,6 +522,9 @@ class DecoderModelConfig:
             raise ValueError(f"decoder.model.visual_prefix_mode must be one of {sorted(allowed_modes)}.")
         object.__setattr__(self, "max_length", int(self.max_length))
         object.__setattr__(self, "max_new_tokens", int(self.max_new_tokens))
+        object.__setattr__(self, "visual_projector_depth", int(self.visual_projector_depth))
+        if int(self.visual_projector_depth) < 1:
+            raise ValueError("decoder.model.visual_projector_depth must be >= 1.")
 
 
 @dataclass(frozen=True)
@@ -501,12 +553,15 @@ class DecoderLoraConfig:
 @dataclass(frozen=True)
 class DecoderDiagnosticLossConfig:
     enabled: bool = True
+    variant: str = "binary"
     weight: float = 0.5
     positive_pathology_weight: float = 1.0
     negative_pathology_weight: float = 0.5
     small_bowel_duodenum_negative_weight: float = 0.25
     positive_normal_penalty_weight: float = 0.25
+    negative_temperature: float = 8.0
     epsilon: float = 1.0e-6
+    lexical_target_cache: str = ""
     pathology_words: tuple[str, ...] = (
         "lesion",
         "lesions",
@@ -530,17 +585,93 @@ class DecoderDiagnosticLossConfig:
     )
 
     def __post_init__(self) -> None:
+        normalized_variant = str(self.variant).strip().lower()
+        if normalized_variant not in {"binary", "sample_specific_lexical", "concept_specific_lexical"}:
+            raise ValueError("decoder.diagnostic_loss.variant must be 'binary', 'sample_specific_lexical', or 'concept_specific_lexical'.")
+        object.__setattr__(self, "variant", normalized_variant)
         for field_name in (
             "weight",
             "positive_pathology_weight",
             "negative_pathology_weight",
             "small_bowel_duodenum_negative_weight",
             "positive_normal_penalty_weight",
+            "negative_temperature",
             "epsilon",
         ):
             object.__setattr__(self, field_name, float(getattr(self, field_name)))
+        object.__setattr__(self, "lexical_target_cache", str(self.lexical_target_cache))
         object.__setattr__(self, "pathology_words", tuple(str(value) for value in self.pathology_words))
         object.__setattr__(self, "normal_words", tuple(str(value) for value in self.normal_words))
+
+
+@dataclass(frozen=True)
+class DecoderSemanticLossConfig:
+    enabled: bool = False
+    variant: str = "minimal"
+    weight: float = 0.25
+    normality_weight: float = 1.0
+    polarity_weight: float = 1.0
+    family_weight: float = 1.0
+    subtype_weight: float = 1.0
+    primary_weight: float = 1.0
+    secondary_weight: float = 1.0
+    accepted_sample_weight: float = 1.0
+    provisional_sample_weight: float = 0.5
+    unresolved_sample_weight: float = 0.0
+    use_confidence_scaling: bool = True
+    target_jsonl_paths: tuple[str, ...] = ()
+    training_targets_jsonl: str = ""
+    training_vocab_json: str = ""
+    include_review_required: bool = False
+    review_required_sample_weight: float = 0.25
+
+    def __post_init__(self) -> None:
+        normalized_variant = str(self.variant).strip().lower()
+        if normalized_variant not in {"minimal", "family_subtype", "primary_secondary"}:
+            raise ValueError("decoder.semantic_loss.variant must be 'minimal', 'family_subtype', or 'primary_secondary'.")
+        object.__setattr__(self, "variant", normalized_variant)
+        for field_name in (
+            "weight",
+            "normality_weight",
+            "polarity_weight",
+            "family_weight",
+            "subtype_weight",
+            "primary_weight",
+            "secondary_weight",
+            "accepted_sample_weight",
+            "provisional_sample_weight",
+            "unresolved_sample_weight",
+            "review_required_sample_weight",
+        ):
+            object.__setattr__(self, field_name, float(getattr(self, field_name)))
+        object.__setattr__(self, "target_jsonl_paths", tuple(str(value) for value in self.target_jsonl_paths))
+
+    def resolve_target_jsonl_paths(self, config_dir: Path) -> tuple[Path, ...]:
+        resolved: list[Path] = []
+        for value in self.target_jsonl_paths:
+            if not str(value).strip():
+                continue
+            target = Path(value)
+            if not target.is_absolute():
+                target = config_dir / target
+            resolved.append(target.expanduser().resolve())
+        return tuple(resolved)
+
+    def resolve_training_targets_jsonl(self, config_dir: Path) -> Path | None:
+        if not str(self.training_targets_jsonl).strip():
+            return None
+        target = Path(self.training_targets_jsonl)
+        if not target.is_absolute():
+            target = config_dir / target
+        return target.expanduser().resolve()
+
+    def resolve_training_vocab_json(self, config_dir: Path) -> Path | None:
+        if not str(self.training_vocab_json).strip():
+            return None
+        target = Path(self.training_vocab_json)
+        if not target.is_absolute():
+            target = config_dir / target
+        return target.expanduser().resolve()
 
 
 @dataclass(frozen=True)
@@ -548,14 +679,21 @@ class DecoderTrainingConfig:
     seed: int = 13
     device: str = "cuda"
     num_workers: int = 0
+    cache_build_num_workers: int | None = None
     pin_memory: bool = False
     persistent_workers: bool = False
     batch_size: int = 1
+    cache_build_batch_size: int | None = None
     epochs: int = 1
     learning_rate: float = 2.0e-4
     projector_learning_rate: float | None = None
     weight_decay: float = 0.0
     amp: bool = True
+    amp_dtype: str = "bfloat16"
+    scheduler_type: str = "none"
+    warmup_steps: int = 0
+    min_learning_rate: float = 0.0
+    scheduler_interval: str = "step"
     max_grad_norm: float | None = 1.0
     log_every_steps: int = 10
     save_every_steps: int = 0
@@ -566,6 +704,39 @@ class DecoderTrainingConfig:
     ddp_find_unused_parameters: bool = False
     resume_from: str | None = None
     precompute_features_if_missing: bool = True
+
+    def __post_init__(self) -> None:
+        amp_dtype = str(self.amp_dtype).strip().lower()
+        scheduler_type = str(self.scheduler_type).strip().lower()
+        scheduler_interval = str(self.scheduler_interval).strip().lower()
+        if amp_dtype not in {"float16", "fp16", "bfloat16", "bf16"}:
+            raise ValueError("decoder.training.amp_dtype must be 'float16' or 'bfloat16'.")
+        if scheduler_type not in {"none", "cosine"}:
+            raise ValueError("decoder.training.scheduler_type must be 'none' or 'cosine'.")
+        if scheduler_interval != "step":
+            raise ValueError("decoder.training.scheduler_interval currently only supports 'step'.")
+        object.__setattr__(self, "seed", int(self.seed))
+        object.__setattr__(self, "num_workers", int(self.num_workers))
+        object.__setattr__(self, "batch_size", int(self.batch_size))
+        object.__setattr__(self, "epochs", int(self.epochs))
+        object.__setattr__(self, "learning_rate", float(self.learning_rate))
+        if self.projector_learning_rate is not None:
+            object.__setattr__(self, "projector_learning_rate", float(self.projector_learning_rate))
+        object.__setattr__(self, "weight_decay", float(self.weight_decay))
+        object.__setattr__(self, "amp_dtype", "bfloat16" if amp_dtype in {"bfloat16", "bf16"} else "float16")
+        object.__setattr__(self, "scheduler_type", scheduler_type)
+        object.__setattr__(self, "scheduler_interval", scheduler_interval)
+        object.__setattr__(self, "warmup_steps", int(self.warmup_steps))
+        object.__setattr__(self, "min_learning_rate", float(self.min_learning_rate))
+        if self.max_grad_norm is not None:
+            object.__setattr__(self, "max_grad_norm", float(self.max_grad_norm))
+        object.__setattr__(self, "log_every_steps", int(self.log_every_steps))
+        object.__setattr__(self, "save_every_steps", int(self.save_every_steps))
+        object.__setattr__(self, "save_every_epochs", int(self.save_every_epochs))
+        if self.cache_build_num_workers is not None:
+            object.__setattr__(self, "cache_build_num_workers", int(self.cache_build_num_workers))
+        if self.cache_build_batch_size is not None:
+            object.__setattr__(self, "cache_build_batch_size", int(self.cache_build_batch_size))
 
 
 @dataclass(frozen=True)
@@ -591,6 +762,7 @@ class DecoderConfig:
     model: DecoderModelConfig
     lora: DecoderLoraConfig
     diagnostic_loss: DecoderDiagnosticLossConfig
+    semantic_loss: DecoderSemanticLossConfig
     training: DecoderTrainingConfig
     generation: DecoderGenerationConfig
     logging: LoggingConfig
@@ -610,6 +782,22 @@ class DecoderConfig:
     @property
     def resolved_feature_cache_dir(self) -> Path | None:
         return self.paths.resolve_feature_cache_dir(Path(self.config_dir))
+
+    @property
+    def resolved_lesion_metadata_csv(self) -> Path | None:
+        return self.data.resolve_lesion_metadata_csv(Path(self.config_dir))
+
+    @property
+    def resolved_semantic_target_jsonl_paths(self) -> tuple[Path, ...]:
+        return self.semantic_loss.resolve_target_jsonl_paths(Path(self.config_dir))
+
+    @property
+    def resolved_semantic_training_targets_jsonl(self) -> Path | None:
+        return self.semantic_loss.resolve_training_targets_jsonl(Path(self.config_dir))
+
+    @property
+    def resolved_semantic_training_vocab_json(self) -> Path | None:
+        return self.semantic_loss.resolve_training_vocab_json(Path(self.config_dir))
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -636,6 +824,10 @@ class EncoderConfig:
     @property
     def resolved_output_dir(self) -> Path:
         return self.paths.resolve_output_dir(Path(self.config_dir))
+
+    @property
+    def resolved_lesion_metadata_csv(self) -> Path | None:
+        return self.data.resolve_lesion_metadata_csv(Path(self.config_dir))
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

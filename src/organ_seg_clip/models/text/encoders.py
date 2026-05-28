@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -82,6 +83,8 @@ class HFTextEncoder(_BaseTextEncoder):
         self.proj = nn.Linear(hidden_size, config.projection_dim)
         self._frozen_output_cache: dict[tuple[int, str], torch.Tensor] = {}
         self._configure_encoder_trainability()
+        if self.config.disk_cache_path:
+            self._load_disk_cache(Path(self.config.disk_cache_path))
 
     def train(self, mode: bool = True) -> "HFTextEncoder":
         super().train(mode)
@@ -153,6 +156,30 @@ class HFTextEncoder(_BaseTextEncoder):
 
     def _output_zeros(self, batch_size: int, organ_count: int) -> torch.Tensor:
         return self.proj.weight.new_zeros((batch_size, organ_count, self.config.projection_dim))
+
+    def _load_disk_cache(self, path: Path) -> None:
+        if not path.exists():
+            return
+        try:
+            data: dict = torch.load(path, map_location="cpu", weights_only=True)
+            self._frozen_output_cache.update(data)
+        except Exception as exc:
+            print(f"[text_encoder] disk cache load failed ({path}): {exc}", flush=True)
+
+    def save_disk_cache(self) -> None:
+        if not self.config.disk_cache_path or not self._frozen_output_cache:
+            return
+        path = Path(self.config.disk_cache_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing: dict = {}
+        if path.exists():
+            try:
+                existing = torch.load(path, map_location="cpu", weights_only=True)
+            except Exception:
+                existing = {}
+        merged = {**existing, **{k: v.cpu() for k, v in self._frozen_output_cache.items()}}
+        torch.save(merged, path)
+        print(f"[text_encoder] disk cache saved: {len(merged)} entries → {path}", flush=True)
 
     def _configure_encoder_trainability(self) -> None:
         self._set_module_requires_grad(self.encoder, False)

@@ -1,6 +1,6 @@
 paths:
   dataset_root_env: ORGAN_SEG_CLIP_DATASET_ROOT
-  dataset_root: /net/pr2/projects/plgrid/plggjmiag/Merlin_converted
+  dataset_root: ''
   output_dir: ../../../outputs/encoder/profile_scaling_1gpu_128x128x48_summary332_seg3_quick
 
 data:
@@ -8,7 +8,7 @@ data:
   val_split: val
   train_limit: 16
   val_limit: 8
-  lesion_metadata_csv: /net/tscratch/people/plgikolton/ReportGen/Merlin_metadata_hf_clean.csv
+  lesion_metadata_csv: ''
 
 preprocessing:
   resample_spacing: [2.0, 2.0, 2.0]

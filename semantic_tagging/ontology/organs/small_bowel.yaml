@@ -1,0 +1,15 @@
+organ: Small bowel
+maturity_tier: tier_1
+allow_online_expansion: true
+subtypes:
+  small_bowel_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - The small bowel is within normal limits without evidence of bowel wall thickening, hyperemia, pneumatosis or obstruction.
+      - The small bowel is normal without evidence of bowel wall thickening, hyperemia, pneumatosis or obstruction.
+    contrast_examples:
+      - Mild thickening of the distal ileum, likely reactive.
+      - Infiltrating 2.8 x 1.7 x 2.6 cm mass about the duodenum and proximal jejunum.
+    maturity_tier: tier_1

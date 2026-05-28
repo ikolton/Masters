@@ -37,6 +37,8 @@ def masked_organ_siglip_loss(
     frequency_balance_power: float = 0.5,
     frequency_balance_min: float = 0.25,
     frequency_balance_max: float = 4.0,
+    soft_positive_threshold: float | None = None,
+    hard_negative_weight: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     if organ_embeddings.shape[:2] != organ_text_embeddings.shape[:2] or organ_embeddings.shape[:2] != organ_mask.shape:
         raise ValueError("organ embeddings, text embeddings, and mask must agree on [batch, organ].")
@@ -75,9 +77,19 @@ def masked_organ_siglip_loss(
         global_labels = _gather_strings(flattened_labels)
         global_organ_ids = _gather_objects(organ_ids)
         image_positive_mask = _build_positive_mask_against_global(flattened_labels, organ_ids, global_labels, global_organ_ids, device=image_embeddings.device)
+        hard_neg_pair_weights = None
+        if soft_positive_threshold is not None:
+            soft_same_organ = _build_same_organ_mask(organ_ids, global_organ_ids, device=image_embeddings.device)
+            soft_sim = (text_embeddings @ global_text_embeddings.transpose(0, 1)).clamp(-1.0, 1.0)
+            soft_positive_mask = soft_same_organ & (soft_sim >= float(soft_positive_threshold))
+            image_positive_mask = image_positive_mask | soft_positive_mask
+            if float(hard_negative_weight) > 1.0:
+                hard_neg_mask = soft_same_organ & (soft_sim < float(soft_positive_threshold)) & ~image_positive_mask
+                hard_neg_pair_weights = torch.ones_like(soft_sim)
+                hard_neg_pair_weights[hard_neg_mask] = float(hard_negative_weight)
         image_valid_pairs = flat_mask.unsqueeze(1) & global_mask.unsqueeze(0)
         image_positive_mask = image_positive_mask & image_valid_pairs
-        text_positive_mask = image_positive_mask
+        text_positive_mask = image_positive_mask.clone()
         logits_image_to_text = scale * image_embeddings @ global_text_embeddings.transpose(0, 1) + bias
         logits_text_to_image = scale * text_embeddings @ global_image_embeddings.transpose(0, 1) + bias
         if pair_balance:
@@ -100,6 +112,8 @@ def masked_organ_siglip_loss(
                 cross_organ_weight=float(cross_organ_weight),
                 image_row_weights=row_weights,
                 text_row_weights=row_weights,
+                image_pair_weights=hard_neg_pair_weights,
+                text_pair_weights=hard_neg_pair_weights,
             )
         return _pairwise_siglip_loss(
             logits_image_to_text,
@@ -110,9 +124,21 @@ def masked_organ_siglip_loss(
             image_valid_pairs,
             image_row_weights=row_weights,
             text_row_weights=row_weights,
+            image_pair_weights=hard_neg_pair_weights,
+            text_pair_weights=hard_neg_pair_weights,
         )
 
     positive_mask = _build_positive_mask(flattened_labels, organ_ids, device=flat_image.device)
+    hard_neg_pair_weights = None
+    if soft_positive_threshold is not None:
+        soft_same_organ = _build_same_organ_mask(organ_ids, organ_ids, device=flat_image.device)
+        soft_sim = (text_embeddings @ text_embeddings.transpose(0, 1)).clamp(-1.0, 1.0)
+        soft_positive_mask = soft_same_organ & (soft_sim >= float(soft_positive_threshold))
+        positive_mask = positive_mask | soft_positive_mask
+        if float(hard_negative_weight) > 1.0:
+            hard_neg_mask = soft_same_organ & (soft_sim < float(soft_positive_threshold)) & ~positive_mask
+            hard_neg_pair_weights = torch.ones_like(soft_sim)
+            hard_neg_pair_weights[hard_neg_mask] = float(hard_negative_weight)
     valid_pairs = flat_mask.unsqueeze(1) & flat_mask.unsqueeze(0)
     positive_mask = positive_mask & valid_pairs
     logits = scale * image_embeddings @ text_embeddings.transpose(0, 1) + bias
@@ -135,6 +161,8 @@ def masked_organ_siglip_loss(
             cross_organ_weight=float(cross_organ_weight),
             image_row_weights=row_weights,
             text_row_weights=row_weights,
+            image_pair_weights=hard_neg_pair_weights,
+            text_pair_weights=hard_neg_pair_weights,
         )
     return _pairwise_siglip_loss(
         logits,
@@ -145,6 +173,8 @@ def masked_organ_siglip_loss(
         valid_pairs,
         image_row_weights=row_weights,
         text_row_weights=row_weights,
+        image_pair_weights=hard_neg_pair_weights,
+        text_pair_weights=hard_neg_pair_weights,
     )
 
 
@@ -197,6 +227,8 @@ def _pairwise_siglip_loss(
     text_valid_pairs: torch.Tensor,
     image_row_weights: torch.Tensor | None = None,
     text_row_weights: torch.Tensor | None = None,
+    image_pair_weights: torch.Tensor | None = None,
+    text_pair_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     image_valid_rows = image_positive_mask.any(dim=1)
     text_valid_rows = text_positive_mask.any(dim=1)
@@ -209,6 +241,7 @@ def _pairwise_siglip_loss(
         image_valid_pairs,
         image_valid_rows,
         row_weights=image_row_weights,
+        pair_weights=image_pair_weights,
     )
     text_loss = _directional_siglip_loss(
         logits_text_to_image,
@@ -216,6 +249,7 @@ def _pairwise_siglip_loss(
         text_valid_pairs,
         text_valid_rows,
         row_weights=text_row_weights,
+        pair_weights=text_pair_weights,
     )
     image_hits = _top1_hits(logits_image_to_text, image_positive_mask, image_valid_pairs, image_valid_rows)
     text_hits = _top1_hits(logits_text_to_image, text_positive_mask, text_valid_pairs, text_valid_rows)
@@ -247,6 +281,8 @@ def _pairwise_balanced_organ_siglip_loss(
     cross_organ_weight: float,
     image_row_weights: torch.Tensor | None = None,
     text_row_weights: torch.Tensor | None = None,
+    image_pair_weights: torch.Tensor | None = None,
+    text_pair_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     image_valid_rows = image_positive_mask.any(dim=1)
     text_valid_rows = text_positive_mask.any(dim=1)
@@ -263,6 +299,7 @@ def _pairwise_balanced_organ_siglip_loss(
         same_organ_weight=same_organ_weight,
         cross_organ_weight=cross_organ_weight,
         row_weights=image_row_weights,
+        pair_weights=image_pair_weights,
     )
     text_loss = _directional_balanced_organ_siglip_loss(
         logits_text_to_image,
@@ -274,6 +311,7 @@ def _pairwise_balanced_organ_siglip_loss(
         same_organ_weight=same_organ_weight,
         cross_organ_weight=cross_organ_weight,
         row_weights=text_row_weights,
+        pair_weights=text_pair_weights,
     )
     image_hits = _top1_hits(logits_image_to_text, image_positive_mask, image_valid_pairs, image_valid_rows)
     text_hits = _top1_hits(logits_text_to_image, text_positive_mask, text_valid_pairs, text_valid_rows)
@@ -340,6 +378,7 @@ def _directional_balanced_organ_siglip_loss(
     same_organ_weight: float,
     cross_organ_weight: float,
     row_weights: torch.Tensor | None = None,
+    pair_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if not valid_rows.any():
         return logits.sum() * 0.0
@@ -354,6 +393,8 @@ def _directional_balanced_organ_siglip_loss(
 
     positive_loss = -F.logsigmoid(row_logits)
     negative_loss = -F.logsigmoid(-row_logits)
+    if pair_weights is not None:
+        negative_loss = negative_loss * pair_weights[valid_rows]
     row_loss = _weighted_category_row_loss(
         positive_loss,
         negative_loss,
@@ -401,6 +442,7 @@ def _directional_siglip_loss(
     valid_rows: torch.Tensor,
     *,
     row_weights: torch.Tensor | None = None,
+    pair_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if not valid_rows.any():
         return logits.sum() * 0.0
@@ -412,13 +454,16 @@ def _directional_siglip_loss(
 
     positive_loss = -F.logsigmoid(row_logits)
     negative_loss = -F.logsigmoid(-row_logits)
+    if pair_weights is not None:
+        negative_loss = negative_loss * pair_weights[valid_rows]
     positive_counts = positive_pairs.float().sum(dim=1)
     negative_counts = negative_pairs.float().sum(dim=1)
 
     positive_row_loss = (positive_loss * positive_pairs.float()).sum(dim=1) / positive_counts.clamp(min=1.0)
     negative_row_loss = (negative_loss * negative_pairs.float()).sum(dim=1) / negative_counts.clamp(min=1.0)
-    row_loss = positive_row_loss + negative_row_loss
-    row_loss = torch.where(negative_counts > 0, 0.5 * row_loss, row_loss)
+    # Equal 0.5 weight for each component regardless of whether negatives exist,
+    # so rows with no negatives don't contribute twice as much positive signal.
+    row_loss = 0.5 * positive_row_loss + 0.5 * negative_row_loss
     if row_weights is None:
         return row_loss.mean()
     return _weighted_mean(row_loss, row_weights[valid_rows])
@@ -470,17 +515,17 @@ def _row_weight_mean(row_weights: torch.Tensor | None) -> float:
 
 
 def _build_same_organ_mask(local_organ_ids: Sequence[int], global_organ_ids: Sequence[int], *, device: torch.device) -> torch.Tensor:
-    mask = torch.zeros((len(local_organ_ids), len(global_organ_ids)), device=device, dtype=torch.bool)
-    for row_index, organ_id in enumerate(local_organ_ids):
-        for col_index, other_organ_id in enumerate(global_organ_ids):
-            if int(organ_id) == int(other_organ_id):
-                mask[row_index, col_index] = True
-    return mask
+    if len(local_organ_ids) == 0 or len(global_organ_ids) == 0:
+        return torch.zeros((len(local_organ_ids), len(global_organ_ids)), device=device, dtype=torch.bool)
+    local_t = torch.tensor(list(local_organ_ids), device=device, dtype=torch.long)
+    global_t = torch.tensor(list(global_organ_ids), device=device, dtype=torch.long)
+    return local_t.unsqueeze(1) == global_t.unsqueeze(0)
+
 
 def _build_id_positive_mask(local_ids: Sequence[str], global_ids: Sequence[str], *, device: torch.device) -> torch.Tensor:
-    mask = torch.zeros((len(local_ids), len(global_ids)), device=device, dtype=torch.bool)
-    for row_index, study_id in enumerate(local_ids):
-        for col_index, other_study_id in enumerate(global_ids):
-            if study_id == other_study_id:
-                mask[row_index, col_index] = True
-    return mask
+    if len(local_ids) == 0 or len(global_ids) == 0:
+        return torch.zeros((len(local_ids), len(global_ids)), device=device, dtype=torch.bool)
+    id_map = {id_str: idx for idx, id_str in enumerate(dict.fromkeys(list(local_ids) + list(global_ids)))}
+    local_t = torch.tensor([id_map[s] for s in local_ids], device=device, dtype=torch.long)
+    global_t = torch.tensor([id_map[s] for s in global_ids], device=device, dtype=torch.long)
+    return local_t.unsqueeze(1) == global_t.unsqueeze(0)

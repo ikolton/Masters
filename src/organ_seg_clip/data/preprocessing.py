@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import warnings
+
 import nibabel as nib
 import numpy as np
 import torch
@@ -238,6 +240,17 @@ def _resample_to_spacing(
     if all(abs(float(src) - float(dst)) <= 1e-3 for src, dst in zip(image_spacing, target_spacing)):
         return tensor
     scale = [float(src) / float(dst) for src, dst in zip(image_spacing, target_spacing)]
+
+    # Upsampling CT to a finer spacing almost always indicates a misconfiguration —
+    # it hallucinates detail that isn't in the source data.
+    if any(s > 1.0 + 1e-3 for s in scale):
+        warnings.warn(
+            f"Resampling is upsampling on at least one axis: "
+            f"source={image_spacing}, target={target_spacing}, scale={[round(s, 3) for s in scale]}. "
+            f"Verify that resample_spacing is coarser than the source data.",
+            stacklevel=3,
+        )
+
     target_size = tuple(max(1, int(round(size * factor))) for size, factor in zip(tensor.shape[-3:], scale))
     if tuple(int(v) for v in tensor.shape[-3:]) == target_size:
         return tensor

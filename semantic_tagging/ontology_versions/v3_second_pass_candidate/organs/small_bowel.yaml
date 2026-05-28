@@ -1,0 +1,156 @@
+organ: Small bowel
+maturity_tier: tier_2
+allow_online_expansion: true
+subtypes:
+  small_bowel_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - The small bowel is within normal limits without evidence of bowel wall thickening, hyperemia, pneumatosis or obstruction.
+      - The small bowel is normal without evidence of bowel wall thickening, hyperemia, pneumatosis or obstruction.
+    contrast_examples:
+      - Mild thickening of the distal ileum, likely reactive.
+      - Infiltrating 2.8 x 1.7 x 2.6 cm mass about the duodenum and proximal jejunum.
+    maturity_tier: tier_1
+  small_bowel_dilatation:
+    family: dilation_obstruction
+    canonical_label: small bowel dilatation
+    positive_examples:
+      - Mildly dilated loops of small bowel.
+      - A dilated loop of proximal jejunum measuring up to 4.6 cm is seen in the left upper quadrant.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Evidence of prior small bowel resection.
+    maturity_tier: tier_2
+  small_bowel_wall_thickening:
+    family: inflammatory_thickening
+    canonical_label: small bowel wall thickening
+    positive_examples:
+      - 5-cm short segment of distal terminal ileum with bowel wall thickening and focal adjacent mesenteric fat stranding, no associated lymphadenopathy.
+      - A short segment of small bowel proximal to the anastomosis appears thickened, although this appearance may be due to lack of distension.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Mildly dilated loops of small bowel.
+    maturity_tier: tier_2
+  small_bowel_obstruction:
+    family: dilation_obstruction
+    canonical_label: small bowel obstruction
+    positive_examples:
+      - A few prominent loops of bowel in the right lower quadrant which appear to be tethered around appendectomy clips are concerning for a partial small bowel obstruction, possibly closed loop obstruction.
+      - Twisting of the small bowel and mesentery at the ileostomy site in the right lower quadrant with abrupt narrowing of the lumen. Associated upstream extensive dilation of loops of small bowel measuring up to 5.6 cm.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Evidence of prior small bowel resection.
+    maturity_tier: tier_2
+  small_bowel_submucosal_edema:
+    family: inflammatory_thickening
+    canonical_label: small bowel submucosal edema
+    positive_examples:
+      - Submucosal edema within the small bowel.
+      - A long segment of the terminal ileum demonstrates wall thickening and mucosal hyperenhancement, consistent with ileitis.
+    contrast_examples:
+      - The small bowel is normal without evidence of bowel wall thickening, hyperemia, pneumatosis or obstruction.
+      - Mildly dilated loops of small bowel.
+    maturity_tier: tier_2
+  small_bowel_fecalization:
+    family: dilation_obstruction
+    canonical_label: small bowel fecalization
+    positive_examples:
+      - Areas of fecalization in the small bowel of the left upper quadrant with no frank small bowel dilation or transition point identified.
+      - Fecalization of small bowel material.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Fluid in the distal small bowel and colon. No evidence of bowel wall thickening, obstruction, or pneumatosis.
+    maturity_tier: tier_2
+  small_bowel_postoperative_change:
+    family: absent_postop
+    canonical_label: small bowel postoperative change
+    positive_examples:
+      - Evidence of prior small bowel resection.
+      - Status post partial small bowel resection with entero-enteric anastomosis in the right lower quadrant.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Mildly dilated loops of small bowel.
+    maturity_tier: tier_2
+  small_bowel_hyperemia:
+    family: inflammatory_thickening
+    canonical_label: small bowel hyperemia
+    positive_examples:
+      - Adjacent to the dominant left abdomen mass, a short segment of small bowel demonstrates hyperemia.
+      - A few other shorter segments of mid to distal small bowel demonstrate mild wall thickening and mucosal hyperenhancement, likely representing areas of enteritis.
+    contrast_examples:
+      - The small bowel is within normal limits without evidence of bowel wall thickening, hyperemia, pneumatosis or obstruction.
+      - Mildly dilated loops of small bowel.
+    maturity_tier: tier_2
+  small_bowel_herniation:
+    family: other_abnormal
+    canonical_label: small bowel herniation
+    positive_examples:
+      - Small right paramedian ventral hernia containing a very short loop of small bowel.
+      - A loop of small bowel appears angulated anteriorly to the gas and fluid collection, possibly tethered due to adhesions.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Evidence of prior small bowel resection.
+    maturity_tier: tier_2
+  small_bowel_narrowing:
+    family: dilation_obstruction
+    canonical_label: small bowel narrowing
+    positive_examples:
+      - Area of moderate small bowel narrowing in the left lower quadrant with predominantly decompressed bowel distally.
+      - Abrupt narrowing of the small bowel lumen is present at the ileostomy site.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Mildly dilated loops of small bowel.
+    maturity_tier: tier_2
+  small_bowel_mesenteric_infiltration:
+    family: other_abnormal
+    canonical_label: small bowel mesenteric reactive change
+    positive_examples:
+      - Mild associated mesenteric infiltration is present near the transition point.
+      - Persistent tethering of small bowel to the mesenteric phlegmon is present.
+      - Adjacent mesenteric edema and congestion are present around the involved bowel loops.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Evidence of prior small bowel resection.
+    maturity_tier: tier_2
+  small_bowel_anastomosis:
+    family: absent_postop
+    canonical_label: small bowel anastomosis
+    positive_examples:
+      - Small bowel anastomotic changes are reidentified on the right.
+      - The small bowel anastomotic site contains inspissated luminal contents.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Mildly dilated loops of small bowel.
+    maturity_tier: tier_2
+  small_bowel_anastomotic_leak:
+    family: other_abnormal
+    canonical_label: small bowel anastomotic leak
+    positive_examples:
+      - Findings are concerning for a leak adjacent to the small bowel anastomosis.
+      - Gas or fluid collection adjacent to the anastomotic site suggests an anastomotic leak.
+    contrast_examples:
+      - Evidence of prior small bowel resection.
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+    maturity_tier: tier_2
+  small_bowel_fistulous_tract:
+    family: other_abnormal
+    canonical_label: small bowel fistulous tract
+    positive_examples:
+      - Persistent tethering of adjacent small bowel loops likely reflects prior fistulization.
+      - A probable fistulous tract is seen arising from the involved small bowel.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - Mildly dilated loops of small bowel.
+    maturity_tier: tier_2
+  small_bowel_ileus:
+    family: dilation_obstruction
+    canonical_label: small bowel ileus
+    positive_examples:
+      - Mildly prominent fluid-filled bowel loops suggest ileus.
+      - Intermittent dilatation throughout the small bowel without frank obstruction suggests ileus.
+    contrast_examples:
+      - The small bowel loops are normal in caliber without wall thickening or obstruction.
+      - A few prominent loops are concerning for a partial small bowel obstruction.
+    maturity_tier: tier_2

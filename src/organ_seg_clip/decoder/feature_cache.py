@@ -57,20 +57,26 @@ def build_feature_store(config: DecoderConfig, *, split: str, device: torch.devi
     sample_seed = config.training.seed if split == config.data.train_split else config.training.seed + 1
     samples, dataset_summary = load_decoder_samples(config, split=split, sample_seed=sample_seed)
     dataset = MerlinWholeStudyDataset(samples, config=encoder_config)
+    cache_batch_size = int(config.training.cache_build_batch_size or config.training.batch_size)
+    cache_num_workers = int(
+        config.training.num_workers if config.training.cache_build_num_workers is None else config.training.cache_build_num_workers
+    )
     loader = DataLoader(
         dataset,
-        batch_size=max(1, int(config.training.batch_size)),
+        batch_size=max(1, cache_batch_size),
         shuffle=False,
-        num_workers=int(config.training.num_workers),
+        num_workers=max(0, cache_num_workers),
         pin_memory=bool(config.training.pin_memory),
-        persistent_workers=bool(config.training.persistent_workers and config.training.num_workers > 0),
+        persistent_workers=bool(config.training.persistent_workers and cache_num_workers > 0),
         collate_fn=collate_whole_study_batch,
     )
     records: dict[str, DecoderFeatureRecord] = {}
+    use_amp = bool(device.type == "cuda" and getattr(config.training, "amp", False))
     with torch.no_grad():
         for batch in loader:
             moved = _move_encoder_batch_to_device(batch, device)
-            output = visual_encoder(moved)
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+                output = visual_encoder(moved)
             for row_index, study_id in enumerate(output.study_ids):
                 records[str(study_id)] = DecoderFeatureRecord(
                     study_id=str(study_id),
@@ -80,6 +86,7 @@ def build_feature_store(config: DecoderConfig, *, split: str, device: torch.devi
                     visual_tokens=output.visual_tokens[row_index].detach().cpu(),
                     visual_token_mask=output.visual_token_mask[row_index].detach().cpu(),
                 )
+    resample_spacing = encoder_config.preprocessing.resample_spacing
     store = DecoderFeatureStore(
         organ_names=tuple(getattr(visual_encoder, "organ_names", config.data.organ_names)),
         visual_dim=int(getattr(visual_encoder, "visual_dim", 256)),
@@ -89,9 +96,17 @@ def build_feature_store(config: DecoderConfig, *, split: str, device: torch.devi
             "source_visual_encoder_epoch": payload.get("source_epoch"),
             "source_visual_encoder_step": payload.get("source_step"),
             "split": split,
+            # Stored so downstream consumers can verify the cache was built at the expected spacing.
+            "resample_spacing_mm": list(resample_spacing) if resample_spacing is not None else None,
         },
     )
-    return store, {"dataset": dataset_summary, "feature_count": len(records), "built": True}
+    return store, {
+        "dataset": dataset_summary,
+        "feature_count": len(records),
+        "built": True,
+        "cache_build_batch_size": float(cache_batch_size),
+        "cache_build_num_workers": float(cache_num_workers),
+    }
 
 
 def _move_encoder_batch_to_device(batch: Any, device: torch.device) -> Any:

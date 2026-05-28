@@ -1,0 +1,142 @@
+data:
+  abnormal_label_repeat_factor: 1
+  lesion_metadata_csv: ''
+  lesion_positive_repeat_factor: 1
+  organ_names:
+  - Spleen
+  - Kidneys
+  - Gallbladder
+  - Liver
+  - Stomach
+  - Pancreas
+  - Adrenal glands
+  - Small bowel
+  - Colon
+  - Urinary bladder
+  - Prostate
+  train_limit: null
+  train_split: train
+  val_limit: null
+  val_split: val
+  verify_metadata: true
+diagnostic_loss:
+  enabled: true
+  epsilon: 1.0e-06
+  lexical_target_cache: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/diagnostic_lexicon/merlin_converted/lexical_diag_v1_from_semantic_v3/tokenized_lexical_targets_v1.pt
+  negative_pathology_weight: 0.5
+  normal_words:
+  - unremarkable
+  - normal
+  - within normal limits
+  - no abnormality
+  - no focal abnormality
+  pathology_words:
+  - lesion
+  - lesions
+  - cyst
+  - cysts
+  - mass
+  - masses
+  - nodule
+  - nodules
+  - metastasis
+  - metastases
+  - tumor
+  - tumour
+  positive_normal_penalty_weight: 1.0
+  positive_pathology_weight: 1.0
+  small_bowel_duodenum_negative_weight: 0.1
+  variant: sample_specific_lexical
+  weight: 0.02
+generation:
+  do_sample: false
+  max_new_tokens: 128
+  num_beams: 1
+  repetition_penalty: 1.2
+logging:
+  experiment_name: train_qwen05b_per_organ_lexw002_sem_primary_secondary_w002_v3_clean_best6_gh200_1gpu_bs64_10ep_sched_norepeat
+  wandb_enabled: true
+  wandb_mode: online
+  wandb_project: organ_seg_clip
+  wandb_run_name: train_qwen05b_per_organ_lexw002_sem_primary_secondary_w002_v3_clean_best6_gh200_1gpu_bs64_10ep_sched_norepeat
+  wandb_tags:
+  - semantic_v3_clean
+  - decoder_real
+  - 1gpu
+  - mixed_lexw002
+  - semantic_primary_secondary
+  - w002
+lora:
+  alpha: 32
+  dropout: 0.05
+  enabled: true
+  r: 16
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+model:
+  freeze_llm: true
+  gradient_checkpointing: true
+  llm_model_name_or_path: Qwen/Qwen2.5-0.5B
+  max_length: 256
+  max_new_tokens: 128
+  prompt_template: 'Generate the CT finding for {organ}###
+
+    '
+  torch_dtype: bfloat16
+  visual_prefix_mode: report_plus_organ
+paths:
+  dataset_root: ''
+  feature_cache_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/decoder/train_qwen05b_per_organ_lexical_diag_v1_best6_gh200_1gpu_bs64_10ep_sched_norepeat/features
+  output_dir: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/decoder/train_qwen05b_per_organ_lexw002_sem_primary_secondary_w002_v3_clean_best6_gh200_1gpu_bs64_10ep_sched_norepeat
+  visual_encoder_checkpoint: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/encoder/organsegclip_128x48_20ep_uniformtext_schedcos_logitslr1e5_gh200_2gpu_bs12/visual_encoder_best.pt
+semantic_loss:
+  accepted_sample_weight: 1.0
+  enabled: true
+  family_weight: 0.0
+  include_review_required: false
+  normality_weight: 0.5
+  polarity_weight: 0.25
+  primary_weight: 1.0
+  provisional_sample_weight: 0.5
+  review_required_sample_weight: 0.25
+  secondary_weight: 0.5
+  subtype_weight: 0.0
+  training_targets_jsonl: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/semantic_training_targets_v3.jsonl
+  training_vocab_json: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging/merlin_converted/consolidation/consolidation_v3/postprocess_v3_clean/training_vocab_v3_clean.json
+  unresolved_sample_weight: 0.0
+  use_confidence_scaling: true
+  variant: primary_secondary
+  weight: 0.02
+training:
+  amp: true
+  amp_dtype: bfloat16
+  batch_size: 64
+  best_checkpoint_metric: val_total_loss
+  cache_build_batch_size: 4
+  cache_build_num_workers: 2
+  ddp_find_unused_parameters: false
+  device: cuda
+  epochs: 10
+  learning_rate: 0.0002
+  log_every_steps: 20
+  max_grad_norm: 1.0
+  min_learning_rate: 2.0e-05
+  num_workers: 4
+  persistent_workers: true
+  pin_memory: true
+  precompute_features_if_missing: true
+  projector_learning_rate: 0.0002
+  save_best_checkpoint: true
+  save_every_steps: 500
+  save_last_checkpoint: true
+  scheduler_interval: step
+  scheduler_type: cosine
+  seed: 13
+  warmup_steps: 500
+  weight_decay: 0.0

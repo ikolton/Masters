@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "required": ["project", "paths", "dataset", "mining", "prompt", "backend", "execution", "reporting"],
+  "properties": {
+    "project": { "type": "object" },
+    "paths": { "type": "object" },
+    "dataset": { "type": "object" },
+    "mining": { "type": "object" },
+    "prompt": { "type": "object" },
+    "backend": { "type": "object" },
+    "execution": { "type": "object" },
+    "reporting": { "type": "object" }
+  }
+}

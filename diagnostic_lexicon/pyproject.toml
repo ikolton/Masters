@@ -1,0 +1,9 @@
+[project]
+name = "diagnostic-lexicon"
+version = "0.1.0"
+description = "Standalone lexical-resource pipeline for semantic-aware decoder diagnostic loss."
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

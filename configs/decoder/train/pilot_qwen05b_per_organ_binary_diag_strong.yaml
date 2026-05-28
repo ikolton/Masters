@@ -1,5 +1,5 @@
 paths:
-  dataset_root: /net/pr2/projects/plgrid/plggjmiag/Merlin_converted
+  dataset_root: ''
   output_dir: ../../../outputs/decoder/pilot_qwen05b_per_organ_binary_diag_strong
   visual_encoder_checkpoint: ../../../outputs/encoder/train_joint_2gpu_96x96x32_5ep_siglip_grid_orgattn_pairbalanced_a100_fast_pubmedbert/visual_encoder.pt
   feature_cache_dir: ../../../outputs/decoder/pilot_qwen05b_per_organ_binary_diag_strong/features
@@ -10,7 +10,7 @@ data:
   train_limit: 256
   val_limit: 64
   verify_metadata: true
-  lesion_metadata_csv: /net/tscratch/people/plgikolton/ReportGen/Merlin_metadata_hf_clean.csv
+  lesion_metadata_csv: ''
   lesion_positive_repeat_factor: 4
   abnormal_label_repeat_factor: 2
   organ_names:

@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "organ",
+    "normality",
+    "polarity",
+    "certainty",
+    "primary_subtype",
+    "secondary_subtypes",
+    "modifiers",
+    "evidence_spans",
+    "confidence",
+    "decision_status",
+    "decision_source",
+    "ontology_version",
+    "proposed_new_subtype",
+    "proposed_new_family",
+    "validation_flags"
+  ],
+  "properties": {
+    "organ": {"type": "string"},
+    "normality": {"type": "string", "enum": ["normal", "absent_postop", "abnormal", "mixed"]},
+    "polarity": {"type": "string", "enum": ["positive", "negative", "mixed"]},
+    "certainty": {"type": "string", "enum": ["definite", "probable", "indeterminate"]},
+    "primary_subtype": {"type": ["string", "null"]},
+    "secondary_subtypes": {"type": "array", "items": {"type": "string"}},
+    "modifiers": {"type": "array", "items": {"type": "string"}},
+    "evidence_spans": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "decision_status": {"type": "string", "enum": ["accepted", "accepted_provisional", "repaired", "unresolved"]},
+    "decision_source": {"type": "string"},
+    "ontology_version": {"type": "string"},
+    "validation_flags": {"type": "array", "items": {"type": "string"}},
+    "proposed_new_subtype": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["name", "family", "canonical_label", "reason", "confidence"],
+          "properties": {
+            "name": {"type": "string"},
+            "family": {"type": "string"},
+            "canonical_label": {"type": "string"},
+            "reason": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "proposed_new_family": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["name", "reason", "confidence"],
+          "properties": {
+            "name": {"type": "string"},
+            "canonical_label": {"type": "string"},
+            "reason": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "suggested_parent_family": {"type": "string"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

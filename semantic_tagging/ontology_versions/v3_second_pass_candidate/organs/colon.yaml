@@ -1,0 +1,180 @@
+organ: Colon
+maturity_tier: tier_2
+allow_online_expansion: true
+subtypes:
+  colon_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - The colon is normal in course and caliber.
+      - Unremarkable
+    contrast_examples:
+      - Colonic diverticulosis without evidence of diverticulitis.
+      - Mild wall thickening of the rectosigmoid colon.
+    maturity_tier: tier_1
+  colon_diverticulosis:
+    family: other_abnormal
+    canonical_label: diverticulosis
+    positive_examples:
+      - Colonic diverticulosis without evidence of diverticulitis.
+      - Diverticulosis without evidence of acute diverticulitis.
+      - Scattered colonic diverticula without diverticulitis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+    maturity_tier: tier_1
+  colon_wall_thickening:
+    family: inflammatory_thickening
+    canonical_label: colonic wall thickening
+    positive_examples:
+      - Nonspecific right colonic wall thickening is noted.
+      - 8.6-cm segment of transverse colon with wall thickening, pericolonic inflammatory stranding, and nodularity, possibly representing tumor infiltration and/or diverticulitis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Colonic diverticulosis without evidence of diverticulitis.
+    maturity_tier: tier_2
+  colon_stool_burden:
+    family: other_abnormal
+    canonical_label: colonic stool burden
+    positive_examples:
+      - Moderate colonic stool burden.
+      - Moderate to large amount of stool in the remaining colon.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+    maturity_tier: tier_2
+  colon_postsurgical_change:
+    family: absent_postop
+    canonical_label: postsurgical change of the colon
+    positive_examples:
+      - Postsurgical changes following right hemicolectomy.
+      - Colon anastomosis in the left mid abdomen that is patulous.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - Nonspecific right colonic wall thickening is noted.
+    maturity_tier: tier_2
+  colon_submucosal_edema:
+    family: inflammatory_thickening
+    canonical_label: submucosal edema of the colon
+    positive_examples:
+      - Approximately 5 cm long segment of circumferential submucosal edema involving the proximal sigmoid colon.
+      - Short segment of mucosal edema is present in the mid sigmoid colon.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Moderate colonic stool burden.
+    maturity_tier: tier_2
+  colon_pericolonic_stranding:
+    family: other_abnormal
+    canonical_label: pericolonic stranding of the colon
+    positive_examples:
+      - Long segment of sigmoid colon with prominent diverticula, circumferential wall thickening, and mild pericolonic stranding.
+      - Short segment of sigmoid colon with hyperemia and pericolonic fatty infiltration, consistent with acute uncomplicated sigmoid diverticulitis.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - Moderate colonic stool burden.
+    maturity_tier: tier_2
+  colon_colitis:
+    family: inflammatory_thickening
+    canonical_label: colitis of the colon
+    positive_examples:
+      - Colitis of the distal descending colon upstream from the colostomy with mucosal hyperenhancement and bowel wall thickening.
+      - Active colitis of the distal descending colon upstream from the colostomy.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Colonic diverticulosis without evidence of diverticulitis.
+    maturity_tier: tier_2
+  colon_mucosal_hyperemia:
+    family: inflammatory_thickening
+    canonical_label: colonic mucosal hyperemia
+    positive_examples:
+      - Diffuse colonic mucosal hyperemia with fluid seen throughout the colon with mild mural stratification.
+      - Mural thickening and hyperemia of the sigmoid colon with diverticula and surrounding inflammatory changes, suggestive of diverticulitis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Moderate colonic stool burden.
+    maturity_tier: tier_2
+  colon_perirectal_stranding:
+    family: other_abnormal
+    canonical_label: perirectal stranding of the colon
+    positive_examples:
+      - Perirectal fat stranding is present, with associated mild rectal wall thickening.
+      - Mild stranding surrounding the rectum with mild rectal thickening.
+      - Persistent associated perirectal stranding is present within the pelvis.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Moderate colonic stool burden.
+    maturity_tier: tier_2
+  colon_mass:
+    family: focal_lesion
+    canonical_label: colonic mass
+    positive_examples:
+      - Mass along the ascending colon with adjacent calcification approximately at the level of the ileocecal junction.
+      - A large heterogeneously enhancing mass arising from the descending colon near the splenic flexure measuring 6.7 x 6.1 cm.
+      - Asymmetric thickening along the left margin of the mid to high rectum likely corresponding with known rectal carcinoma.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - Colonic diverticulosis without evidence of diverticulitis.
+    maturity_tier: tier_2
+  colon_abscess:
+    family: other_abnormal
+    canonical_label: colonic abscess
+    positive_examples:
+      - A rim-enhancing fluid collection immediately adjacent to the sigmoid colon is consistent with an abscess.
+      - Additional smaller abscess is seen posteriorly to the left of the rectum.
+      - Pelvic fluid collection surrounded by enhancing peritoneum is concerning for abscess.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - No associated drainable fluid collection is identified.
+    maturity_tier: tier_2
+  colon_pericolonic_fluid_collection:
+    family: other_abnormal
+    canonical_label: pericolonic fluid collection of the colon
+    positive_examples:
+      - Hypodense fluid collection with thin peripheral enhancement is present just caudal to the colorectal anastomosis.
+      - A thick-walled fluid collection containing air in the left lower quadrant demonstrates communication with the sigmoid colon.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - No associated drainable fluid collection is identified.
+    maturity_tier: tier_2
+  colon_perforation:
+    family: other_abnormal
+    canonical_label: colonic perforation
+    positive_examples:
+      - Several foci of extraluminal gas are compatible with contained microperforation.
+      - Tiny focus of intraperitoneal gas anterior to the thickened segment of transverse colon suggests perforation.
+      - A contained perforation is present adjacent to the sigmoid colon.
+    contrast_examples:
+      - No evidence of perforation or abscess formation.
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+    maturity_tier: tier_2
+  colon_distension:
+    family: dilation_obstruction
+    canonical_label: colonic distension
+    positive_examples:
+      - Mild gaseous distention of the sigmoid colon.
+      - Cecum is distended measuring up to 10 cm in diameter.
+      - Large bowel distention with contrast and fecal material is present.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+    maturity_tier: tier_2
+  colon_narrowing:
+    family: dilation_obstruction
+    canonical_label: narrowing of the colon
+    positive_examples:
+      - The colonic lumen demonstrates abrupt narrowing.
+      - Focal narrowing of the colon is present adjacent to the area of inflammation.
+    contrast_examples:
+      - The colon is normal in course and caliber.
+      - Mild gaseous distention of the sigmoid colon.
+    maturity_tier: tier_2
+  colon_fistula:
+    family: other_abnormal
+    canonical_label: colonic fistula
+    positive_examples:
+      - Suggestion of a possible colo-cutaneous fistulous tract is present.
+      - A fistula is identified near the colorectal anastomosis entering the presacral collection.
+    contrast_examples:
+      - The colon is normal in caliber with no wall thickening, obstruction, or free air.
+      - No evidence of perforation or abscess formation.
+    maturity_tier: tier_2

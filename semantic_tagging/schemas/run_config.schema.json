@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["project", "paths", "dataset", "prompt", "ontology", "execution", "backend", "reporting"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["dataset_id", "run_id"],
+      "properties": {
+        "dataset_id": {"type": "string"},
+        "run_id": {"type": "string"}
+      }
+    },
+    "paths": {"type": "object"},
+    "dataset": {"type": "object"},
+    "prompt": {"type": "object"},
+    "ontology": {"type": "object"},
+    "execution": {"type": "object"},
+    "backend": {"type": "object"},
+    "reporting": {"type": "object"}
+  }
+}

@@ -1,0 +1,50 @@
+organ: Pancreas
+maturity_tier: tier_3
+allow_online_expansion: true
+subtypes:
+  pancreas_normal:
+    family: normal
+    canonical_label: unremarkable
+    positive_examples:
+      - The pancreas demonstrates normal attenuation. No pancreatic duct dilatation or focal masses.
+      - The pancreas appears normal without evidence of mass or ductal dilatation.
+      - The pancreas is within normal limits without evidence of mass or ductal dilatation.
+    contrast_examples:
+      - Two small cystic lesions in the pancreatic head measuring approximately 8 and 7 mm, adjacent to the main pancreatic duct, compatible with side branch IPMNs.
+      - A 1.7 x 1.6 cm mass at the pancreatic tail.
+    maturity_tier: tier_3
+  pancreas_cystic_lesion_ipmn_like:
+    family: cystic_lesion
+    canonical_label: pancreatic cystic lesion/ipmn-like
+    positive_examples:
+      - Two small cystic lesions in the pancreatic head measuring approximately 8 and 7 mm, adjacent to the main pancreatic duct, compatible with side branch IPMNs.
+      - Cystic lesion in the uncinate process measuring 0.9 cm.
+      - There is a 10-mm hypodensity in the pancreatic body and a 6-mm hypodensity in the pancreatic tail, possibly representing side branch intraductal pancreatic mucinous neoplasms.
+    contrast_examples:
+      - A 1.7 x 1.6 cm mass at the pancreatic tail.
+      - The pancreas demonstrates normal attenuation. No pancreatic duct dilatation or focal masses.
+    maturity_tier: tier_3
+  pancreas_mass:
+    family: focal_lesion
+    canonical_label: pancreatic mass
+    positive_examples:
+      - A 1.7 x 1.6 cm mass at the pancreatic tail.
+      - Ill-defined pancreatic tail mass with cystic dilation.
+      - Grossly hypodense, ill-defined mass centered around the pancreatic head and uncinate process measuring approximately 4.2 x 3.8 cm.
+    contrast_examples:
+      - Two small cystic lesions in the pancreatic head measuring approximately 8 and 7 mm, adjacent to the main pancreatic duct, compatible with side branch IPMNs.
+      - The pancreas appears normal without evidence of mass or ductal dilatation.
+    maturity_tier: tier_3
+  pancreas_atrophy:
+    family: other_abnormal
+    canonical_label: pancreatic atrophy
+    positive_examples:
+      - Atrophic.
+      - Mild fatty atrophy of the pancreas.
+      - The pancreas demonstrates mild atrophy.
+      - The pancreas is atrophic but otherwise unremarkable.
+    contrast_examples:
+      - The pancreas demonstrates normal attenuation. No pancreatic duct dilatation or focal masses.
+      - A 1.7 x 1.6 cm mass at the pancreatic tail.
+      - Two small cystic lesions in the pancreatic head measuring approximately 8 and 7 mm, adjacent to the main pancreatic duct, compatible with side branch IPMNs.
+    maturity_tier: tier_2
