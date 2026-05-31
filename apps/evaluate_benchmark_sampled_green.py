@@ -43,6 +43,13 @@ def main() -> None:
         help="Deprecated; ignored. GREEN now samples studies, then reports normal/abnormal strata from that same subset.",
     )
     parser.add_argument("--seed", type=int, default=13, help="Sampling seed.")
+    parser.add_argument(
+        "--sample-manifest",
+        default=None,
+        help="Pin the GREEN subset to an existing sample_manifest.json (uses its selected_keys). "
+        "Skips study-fraction/seed sampling so a later/parallel run scores the IDENTICAL subset "
+        "as the runs already in the table. Does not overwrite the existing manifest file.",
+    )
     parser.add_argument("--green-batch-size", type=int, default=32)
     parser.add_argument("--green-max-new-tokens", type=int, default=192)
     parser.add_argument("--green-prompt-max-length", type=int, default=2048)
@@ -57,16 +64,30 @@ def main() -> None:
     if not run_paths:
         raise FileNotFoundError(f"No generation files found under {benchmark_dir / 'runs'}")
 
-    sample_keys, sample_manifest = _build_sample_keys(
-        run_paths,
-        study_fraction=float(args.study_fraction),
-        study_limit=args.study_limit,
-        seed=int(args.seed),
-    )
+    if args.sample_manifest:
+        # Pin the subset to an existing manifest so a parallel/follow-up GREEN run
+        # scores the EXACT same rows as the runs already in the table.
+        manifest_in = json.loads(Path(args.sample_manifest).expanduser().read_text(encoding="utf-8"))
+        selected = manifest_in.get("selected_keys", [])
+        if not selected:
+            raise ValueError(f"--sample-manifest has no selected_keys: {args.sample_manifest}")
+        sample_keys = {
+            (str(item["study_id"]).strip(), str(item["organ"]).strip()): idx
+            for idx, item in enumerate(selected)
+        }
+        sample_manifest = manifest_in
+    else:
+        sample_keys, sample_manifest = _build_sample_keys(
+            run_paths,
+            study_fraction=float(args.study_fraction),
+            study_limit=args.study_limit,
+            seed=int(args.seed),
+        )
     sampled_dir = benchmark_dir / "sampled_green"
     sampled_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = sampled_dir / "sample_manifest.json"
-    manifest_path.write_text(json.dumps(sample_manifest, indent=2, sort_keys=True), encoding="utf-8")
+    if not args.sample_manifest:
+        manifest_path.write_text(json.dumps(sample_manifest, indent=2, sort_keys=True), encoding="utf-8")
 
     summary: dict[str, Any] = {
         "benchmark_dir": str(benchmark_dir),

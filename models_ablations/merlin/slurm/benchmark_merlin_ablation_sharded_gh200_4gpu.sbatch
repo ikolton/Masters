@@ -95,5 +95,4 @@ done
 python -u apps/merge_merlin_benchmark_shards.py \
   --output-dir "${OUTPUT_DIR}" \
   --merged-label "${LABEL}" \
-  "${merge_args[@]}" \
-  "${EXTRA_ARGS[@]}"
+  "${merge_args[@]}"
