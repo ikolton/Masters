@@ -122,6 +122,7 @@ training:
   profile_timing: false
   save_last_checkpoint: true
   save_best_checkpoint: true
+  ddp_find_unused_parameters: true
   best_checkpoint_metric: full_val_organ_alignment_loss
   freeze_text_projection_after_epoch: 5
   grad_cache_accum_steps: 4

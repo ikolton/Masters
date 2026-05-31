@@ -121,6 +121,7 @@ training:
   amp_dtype: bfloat16
   batch_size: 6
   best_checkpoint_metric: full_val_organ_alignment_loss
+  ddp_find_unused_parameters: true
   device: cuda
   epochs: 20
   fast_val_limit: 512
