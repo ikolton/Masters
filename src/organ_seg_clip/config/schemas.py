@@ -367,11 +367,15 @@ class TrainingConfig:
     patch_encoder_learning_rate_scale: float = 1.0
     early_stopping_patience: int = 0
     freeze_text_projection_after_epoch: int | None = None
+    grad_cache_accum_steps: int = 1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "alignment_parameter_names", tuple(str(value) for value in self.alignment_parameter_names))
         if self.freeze_text_projection_after_epoch is not None:
             object.__setattr__(self, "freeze_text_projection_after_epoch", int(self.freeze_text_projection_after_epoch))
+        object.__setattr__(self, "grad_cache_accum_steps", int(self.grad_cache_accum_steps))
+        if int(self.grad_cache_accum_steps) < 1:
+            raise ValueError("training.grad_cache_accum_steps must be >= 1.")
         object.__setattr__(self, "patch_encoder_learning_rate_scale", float(self.patch_encoder_learning_rate_scale))
         if float(self.patch_encoder_learning_rate_scale) <= 0.0:
             raise ValueError("training.patch_encoder_learning_rate_scale must be positive.")

@@ -26,6 +26,9 @@ from ..utils.seeding import set_seed
 from .checkpointing import load_checkpoint, load_pretrained_submodule, save_checkpoint
 from .run_logging import ExperimentLogger
 from ..models.losses.contrastive import _normalize_text_label as _normalize_finding_label
+from ..models.losses.diagnostic import masked_binary_diagnostic_loss
+from ..models.losses.siglip import masked_organ_siglip_loss
+from ..models.interfaces.types import RepresentationLossOutput
 
 
 def run_encoder_training(config: EncoderConfig) -> dict[str, Any]:
@@ -524,46 +527,80 @@ def _run_epoch(
     _set_loader_resume_batches(loader, initial_step_offset if training else 0)
     _set_eval_segmentation_supervision(model, enabled=not skip_eval_segmentation_supervision)
     segmentation_oom_fallback_total = 0
+    grad_cache_accum_steps = int(config.training.grad_cache_accum_steps) if training else 1
+    _grad_cache_buffer: list[EncoderBatch] = []
+    macro_step = initial_step_offset  # optimizer-step counter (advances once per K mini-batches)
     try:
         for step_index, batch in enumerate(loader, start=1 + (initial_step_offset if training else 0)):
             if max_steps > 0 and step_index > max_steps:
                 break
             data_wait_seconds = time.perf_counter() - previous_step_end
+            batch = _move_batch_to_device(batch, device)
+
+            # GradCache accumulation: buffer until K mini-batches are ready
+            if grad_cache_accum_steps > 1:
+                _grad_cache_buffer.append(batch)
+                if len(_grad_cache_buffer) < grad_cache_accum_steps:
+                    previous_step_end = time.perf_counter()
+                    continue
+                macro_batches = _grad_cache_buffer
+                _grad_cache_buffer = []
+            else:
+                macro_batches = None  # sentinel: use standard single-batch path
+
             if profile_timing and device.type == "cuda":
                 torch.cuda.synchronize(device)
                 torch.cuda.reset_peak_memory_stats(device)
             step_start = time.perf_counter()
-            batch = _move_batch_to_device(batch, device)
-            if step_index in debug_steps:
-                os.environ["ORGAN_SEG_CLIP_ACTIVE_STEP"] = str(step_index)
-                if is_main_process():
-                    print(f"[debug] enabling chunk memory diagnostics for train step={step_index}", flush=True)
-            else:
-                os.environ.pop("ORGAN_SEG_CLIP_ACTIVE_STEP", None)
-            with grad_context():
-                with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-                    outputs = model(batch)
-                    loss_output, metric_output = loss_composer(outputs, batch)
-            os.environ.pop("ORGAN_SEG_CLIP_ACTIVE_STEP", None)
-            _raise_if_nonfinite_loss(
-                loss_output,
-                outputs=outputs,
-                batch=batch,
-                epoch=epoch,
-                step_index=step_index,
-                training=training,
-            )
-            if training and optimizer is not None and scaler is not None:
-                scaler.scale(loss_output.total_loss).backward()
-                if config.training.max_grad_norm is not None:
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm)
-                scaler.step(optimizer)
-                scaler.update()
-                _clamp_alignment_parameters(model)
+            macro_step += 1
+
+            if macro_batches is not None:
+                # GradCache path: K-batch pool alignment, all optimizer logic internal
+                loss_output, metric_output, outputs = _run_grad_cache_macro_step(
+                    batches=macro_batches,
+                    model=model,
+                    optimizer=optimizer,
+                    scaler=scaler,
+                    loss_composer=loss_composer,
+                    device=device,
+                    use_amp=use_amp,
+                    amp_dtype=amp_dtype,
+                    config=config,
+                )
                 if scheduler is not None:
                     scheduler.step()
-                optimizer.zero_grad(set_to_none=True)
+            else:
+                # Standard single-batch path (unchanged)
+                if step_index in debug_steps:
+                    os.environ["ORGAN_SEG_CLIP_ACTIVE_STEP"] = str(step_index)
+                    if is_main_process():
+                        print(f"[debug] enabling chunk memory diagnostics for train step={step_index}", flush=True)
+                else:
+                    os.environ.pop("ORGAN_SEG_CLIP_ACTIVE_STEP", None)
+                with grad_context():
+                    with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                        outputs = model(batch)
+                        loss_output, metric_output = loss_composer(outputs, batch)
+                os.environ.pop("ORGAN_SEG_CLIP_ACTIVE_STEP", None)
+                _raise_if_nonfinite_loss(
+                    loss_output,
+                    outputs=outputs,
+                    batch=batch,
+                    epoch=epoch,
+                    step_index=step_index,
+                    training=training,
+                )
+                if training and optimizer is not None and scaler is not None:
+                    scaler.scale(loss_output.total_loss).backward()
+                    if config.training.max_grad_norm is not None:
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm)
+                    scaler.step(optimizer)
+                    scaler.update()
+                    _clamp_alignment_parameters(model)
+                    if scheduler is not None:
+                        scheduler.step()
+                    optimizer.zero_grad(set_to_none=True)
             if profile_timing and device.type == "cuda":
                 torch.cuda.synchronize(device)
             step_seconds = time.perf_counter() - step_start
@@ -577,9 +614,9 @@ def _run_epoch(
             for group_index, group in enumerate(optimizer.param_groups if optimizer is not None else ()):
                 group_name = str(group.get("name", f"group_{group_index}"))
                 scalar_metrics[f"lr_{group_name}"] = float(group.get("lr", 0.0))
-            scalar_metrics["seconds_per_study_global"] = float(
-                step_seconds / max(float(batch.images.shape[0] * get_world_size()), 1.0)
-            )
+            # In GradCache mode, seconds_per_study covers all K mini-batches in the macro-step
+            studies_in_step = float(batch.images.shape[0] * get_world_size()) * (1 if macro_batches is None else len(macro_batches))
+            scalar_metrics["seconds_per_study_global"] = float(step_seconds / max(studies_in_step, 1.0))
             segmentation_oom_fallback_total += int(outputs.segmentation_oom_fallback_count)
             if profile_timing:
                 scalar_metrics["step_seconds"] = float(step_seconds)
@@ -599,9 +636,9 @@ def _run_epoch(
                     flush=True,
                 )
             log_every = max(1, int(config.training.log_every_steps))
-            should_log_step = step_index == 1 or (step_index % log_every == 0)
+            should_log_step = macro_step == 1 or (macro_step % log_every == 0)
             save_every_steps = max(0, int(config.training.save_every_steps))
-            should_save_step = bool(training and optimizer is not None and save_every_steps > 0 and step_index % save_every_steps == 0)
+            should_save_step = bool(training and optimizer is not None and save_every_steps > 0 and macro_step % save_every_steps == 0)
             if should_save_step and is_main_process():
                 step_metrics = dict(scalar_metrics)
                 step_metrics["step"] = float(step_index)
@@ -639,8 +676,8 @@ def _run_epoch(
                 f"seg_loss={scalar_metrics['segmentation_loss']:.4f} "
                 f"seg_dice={scalar_metrics['segmentation_dice']:.4f} "
                 f"seg_fg_dice={scalar_metrics.get('segmentation_foreground_dice', 0.0):.4f} "
-                f"diag_loss={scalar_metrics['diagnostic_loss']:.4f} "
-                f"diag_acc={scalar_metrics['diagnostic_accuracy']:.4f} "
+                f"diag_loss={scalar_metrics.get('diagnostic_loss', 0.0):.4f} "
+                f"diag_acc={scalar_metrics.get('diagnostic_accuracy', 0.0):.4f} "
                 f"report_align={scalar_metrics['report_alignment_loss']:.4f} "
                 f"report_n={scalar_metrics.get('report_valid_count', 0.0):.0f} "
                 f"org_gap={scalar_metrics.get('organ_logit_gap', 0.0):.3f} "
@@ -816,6 +853,166 @@ def _build_metric_weights(batch: EncoderBatch, outputs: OrganSegOutput) -> dict[
         "cuda_memory_allocated_gb": batch_weight,
         "cuda_memory_reserved_gb": batch_weight,
     }
+
+
+def _compute_non_alignment_loss(
+    outputs: OrganSegOutput,
+    batch: EncoderBatch,
+    loss_composer: OrganSegLossComposer,
+) -> torch.Tensor:
+    """All weighted losses except the organ alignment term (computed separately in GradCache)."""
+    cfg = loss_composer.config
+    diagnostic_loss, _ = masked_binary_diagnostic_loss(outputs.diagnostic_logits, batch.organ_labels, batch.organ_label_mask)
+    if float(cfg.lesion_global_weight) != 0.0:
+        lesion_global_loss, _ = masked_binary_diagnostic_loss(outputs.lesion_global_logits, batch.lesion_global_labels, batch.lesion_global_mask)
+    else:
+        lesion_global_loss = outputs.lesion_global_logits.sum() * 0.0
+    if float(cfg.lesion_organ_weight) != 0.0:
+        lesion_organ_loss, _ = masked_binary_diagnostic_loss(outputs.lesion_organ_logits, batch.lesion_organ_labels, batch.lesion_organ_mask)
+    else:
+        lesion_organ_loss = outputs.lesion_organ_logits.sum() * 0.0
+    return (
+        cfg.segmentation_weight * outputs.segmentation_loss
+        + cfg.diagnostic_weight * diagnostic_loss
+        + cfg.patch_organ_presence_weight * outputs.patch_organ_presence_loss
+        + cfg.organ_attention_weight * outputs.organ_attention_loss
+        + cfg.lesion_global_weight * lesion_global_loss
+        + cfg.lesion_organ_weight * lesion_organ_loss
+    )
+
+
+def _compute_pool_alignment_loss(
+    leaf_img: list[torch.Tensor],
+    leaf_txt: list[torch.Tensor],
+    batches: list[EncoderBatch],
+    ref_outputs: OrganSegOutput,
+    loss_composer: OrganSegLossComposer,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """SigLIP over the full K-batch pool of leaf embedding tensors."""
+    cfg = loss_composer.config
+    all_img = torch.cat(leaf_img, dim=0)
+    all_txt = torch.cat(leaf_txt, dim=0)
+    all_masks = torch.cat([b.organ_text_mask for b in batches], dim=0)
+    all_raw_texts = [texts for b in batches for texts in b.organ_raw_texts]
+    return masked_organ_siglip_loss(
+        all_img, all_txt, all_masks, all_raw_texts,
+        ref_outputs.organ_logit_scale,
+        ref_outputs.organ_logit_bias,
+        pair_balance=bool(cfg.organ_pair_balance),
+        positive_weight=float(cfg.organ_positive_weight),
+        same_organ_weight=float(cfg.organ_same_organ_weight),
+        cross_organ_weight=float(cfg.organ_cross_organ_weight),
+        finding_counts=loss_composer.organ_finding_counts,
+        frequency_balance=bool(cfg.organ_frequency_balance),
+        frequency_balance_power=float(cfg.organ_frequency_balance_power),
+        frequency_balance_min=float(cfg.organ_frequency_balance_min),
+        frequency_balance_max=float(cfg.organ_frequency_balance_max),
+        soft_positive_threshold=cfg.siglip_soft_positive_threshold,
+        hard_negative_weight=float(cfg.siglip_hard_negative_weight),
+    )
+
+
+def _run_grad_cache_macro_step(
+    *,
+    batches: list[EncoderBatch],
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.GradScaler,
+    loss_composer: OrganSegLossComposer,
+    device: torch.device,
+    use_amp: bool,
+    amp_dtype: torch.dtype,
+    config: EncoderConfig,
+) -> tuple[RepresentationLossOutput, dict[str, float], OrganSegOutput]:
+    """GradCache: 3-phase contrastive accumulation over K mini-batches.
+
+    Phase 1  — no-grad forward all K chunks → float32 leaf embedding tensors.
+    Phase 2  — SigLIP over K*B pool → backward into leaf tensors (∂L/∂emb).
+    Phase 3  — per-chunk with-grad forward; inject alignment grad via dot-product
+               trick: backward(non_align + Σ emb·grad) accumulates both signals
+               in a single call with no retain_graph needed.
+    """
+    n = len(batches)
+    align_weight = float(loss_composer.config.organ_alignment_weight or 0.0)
+
+    # Phase 1: no-grad forward → float32 leaf tensors
+    leaf_img: list[torch.Tensor] = []
+    leaf_txt: list[torch.Tensor] = []
+    ref_out: OrganSegOutput | None = None
+    with torch.no_grad():
+        for batch in batches:
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                out = model(batch)
+            if ref_out is None:
+                ref_out = out
+            img = out.organ_image_embeddings.detach().float().requires_grad_(True)
+            txt = out.organ_text_embeddings.detach().float().requires_grad_(True)
+            leaf_img.append(img)
+            leaf_txt.append(txt)
+
+    # Phase 2: alignment loss over full pool → backward into leaf tensors
+    align_loss, align_metrics = _compute_pool_alignment_loss(leaf_img, leaf_txt, batches, ref_out, loss_composer)
+    (align_weight * align_loss).backward()
+
+    # Phase 3: per-chunk with-grad forward; backward non-alignment + injected alignment grad
+    optimizer.zero_grad(set_to_none=True)
+    last_out: OrganSegOutput = ref_out
+    for i, batch in enumerate(batches):
+        with torch.enable_grad():
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                out = model(batch)
+        last_out = out
+        non_align = _compute_non_alignment_loss(out, batch, loss_composer)
+        # Dot-product trick: ∂(emb · g)/∂θ = g · ∂emb/∂θ = ∂L_align/∂emb · ∂emb/∂θ
+        align_signal = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if leaf_img[i].grad is not None:
+            align_signal = align_signal + (out.organ_image_embeddings.float() * leaf_img[i].grad).sum()
+        if leaf_txt[i].grad is not None:
+            align_signal = align_signal + (out.organ_text_embeddings.float() * leaf_txt[i].grad).sum()
+        chunk_loss = non_align / n + align_signal / n
+        scaler.scale(chunk_loss).backward()
+
+    if config.training.max_grad_norm is not None:
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), float(config.training.max_grad_norm))
+    scaler.step(optimizer)
+    scaler.update()
+    _clamp_alignment_parameters(model)
+
+    # Build a RepresentationLossOutput for the tracker (using last chunk's non-align + pooled align)
+    with torch.no_grad():
+        last_non_align = _compute_non_alignment_loss(last_out, batches[-1], loss_composer)
+    zero = align_loss.detach() * 0.0
+    synthetic_loss = RepresentationLossOutput(
+        total_loss=(last_non_align + align_weight * align_loss).detach(),
+        organ_clip_loss=align_loss.detach(),
+        report_clip_loss=zero,
+        organ_alignment_loss=align_loss.detach(),
+        report_alignment_loss=zero,
+        segmentation_loss=last_out.segmentation_loss.detach(),
+        diagnostic_loss=zero,
+        patch_organ_presence_loss=last_out.patch_organ_presence_loss.detach(),
+        organ_attention_loss=last_out.organ_attention_loss.detach(),
+        lesion_global_loss=zero,
+        lesion_organ_loss=zero,
+    )
+    with torch.no_grad():
+        _, diag_metrics = masked_binary_diagnostic_loss(
+            last_out.diagnostic_logits, batches[-1].organ_labels, batches[-1].organ_label_mask
+        )
+    metrics = {
+        **{f"organ_{k}": v for k, v in align_metrics.items()},
+        "organ_logit_scale": float(ref_out.organ_logit_scale.detach().reshape(()).item()),
+        "organ_logit_bias": float(ref_out.organ_logit_bias.detach().reshape(()).item()),
+        "patch_organ_presence_accuracy": float(last_out.patch_organ_presence_accuracy),
+        "organ_attention_accuracy": float(last_out.organ_attention_accuracy),
+        "organ_attention_positive_accuracy": float(last_out.organ_attention_positive_accuracy),
+        "organ_attention_negative_accuracy": float(last_out.organ_attention_negative_accuracy),
+        "segmentation_dice": float(last_out.segmentation_dice),
+        "segmentation_foreground_dice": float(last_out.segmentation_foreground_dice),
+        **diag_metrics,
+    }
+    return synthetic_loss, metrics, last_out
 
 
 def _clamp_alignment_parameters(model: torch.nn.Module) -> None:
