@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
 #SBATCH --gres=gpu:1
-#SBATCH --time=120:00:00
+#SBATCH --time=48:00:00
 
 # Lightweight CPU-only watcher — polls every 10 min, auto-recovers if training crashes.
 # No GPU needed; runs on the CPU partition for 5 days (covers the full 2-job window).
