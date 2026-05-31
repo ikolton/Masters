@@ -885,7 +885,8 @@ def _compute_pool_alignment_loss(
     leaf_img: list[torch.Tensor],
     leaf_txt: list[torch.Tensor],
     batches: list[EncoderBatch],
-    ref_outputs: OrganSegOutput,
+    logit_scale: torch.Tensor,
+    logit_bias: torch.Tensor,
     loss_composer: OrganSegLossComposer,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """SigLIP over the full K-batch pool of leaf embedding tensors."""
@@ -896,8 +897,8 @@ def _compute_pool_alignment_loss(
     all_raw_texts = [texts for b in batches for texts in b.organ_raw_texts]
     return masked_organ_siglip_loss(
         all_img, all_txt, all_masks, all_raw_texts,
-        ref_outputs.organ_logit_scale,
-        ref_outputs.organ_logit_bias,
+        logit_scale,
+        logit_bias,
         pair_balance=bool(cfg.organ_pair_balance),
         positive_weight=float(cfg.organ_positive_weight),
         same_organ_weight=float(cfg.organ_same_organ_weight),
@@ -950,8 +951,14 @@ def _run_grad_cache_macro_step(
             leaf_img.append(img)
             leaf_txt.append(txt)
 
-    # Phase 2: alignment loss over full pool → backward into leaf tensors
-    align_loss, align_metrics = _compute_pool_alignment_loss(leaf_img, leaf_txt, batches, ref_out, loss_composer)
+    # Phase 2: alignment loss over full pool → backward into leaf tensors.
+    # Use live model params for logit_scale/bias so temperature actually trains.
+    underlying = model.module if hasattr(model, "module") else model
+    live_scale = underlying.organ_logit_scale.clamp(min=0.0, max=underlying._organ_logit_scale_max_log).exp()
+    live_bias = underlying.organ_logit_bias.clamp(min=-20.0, max=20.0)
+    align_loss, align_metrics = _compute_pool_alignment_loss(
+        leaf_img, leaf_txt, batches, live_scale, live_bias, loss_composer
+    )
     (align_weight * align_loss).backward()
 
     # Phase 3: per-chunk with-grad forward; backward non-alignment + injected alignment grad
@@ -976,6 +983,8 @@ def _run_grad_cache_macro_step(
             out.report_image_embeddings.sum() * 0.0
             + out.report_text_embeddings.sum() * 0.0
             + out.lesion_global_logits.sum() * 0.0
+            + out.organ_logit_scale * 0.0
+            + out.organ_logit_bias * 0.0
         )
         chunk_loss = non_align / n + align_signal / n + ddp_touch
         scaler.scale(chunk_loss).backward()
