@@ -235,13 +235,17 @@ class OrgansConfig:
     patch_organ_min_voxels: int = 64
     organ_logit_scale_init: float = 10.0
     organ_logit_bias_init: float = -10.0
+    organ_logit_scale_max: float = 100.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "patch_organ_min_voxels", int(self.patch_organ_min_voxels))
         object.__setattr__(self, "organ_logit_scale_init", float(self.organ_logit_scale_init))
         object.__setattr__(self, "organ_logit_bias_init", float(self.organ_logit_bias_init))
+        object.__setattr__(self, "organ_logit_scale_max", float(self.organ_logit_scale_max))
         if float(self.organ_logit_scale_init) <= 0.0:
             raise ValueError("model.organs.organ_logit_scale_init must be positive.")
+        if float(self.organ_logit_scale_max) <= 0.0:
+            raise ValueError("model.organs.organ_logit_scale_max must be positive.")
 
 
 @dataclass(frozen=True)
@@ -362,9 +366,12 @@ class TrainingConfig:
     warm_start_from: str | None = None
     patch_encoder_learning_rate_scale: float = 1.0
     early_stopping_patience: int = 0
+    freeze_text_projection_after_epoch: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "alignment_parameter_names", tuple(str(value) for value in self.alignment_parameter_names))
+        if self.freeze_text_projection_after_epoch is not None:
+            object.__setattr__(self, "freeze_text_projection_after_epoch", int(self.freeze_text_projection_after_epoch))
         object.__setattr__(self, "patch_encoder_learning_rate_scale", float(self.patch_encoder_learning_rate_scale))
         if float(self.patch_encoder_learning_rate_scale) <= 0.0:
             raise ValueError("training.patch_encoder_learning_rate_scale must be positive.")

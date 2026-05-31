@@ -140,6 +140,7 @@ class OrganSegCLIPModel(nn.Module):
         self.organ_logit_bias = nn.Parameter(torch.tensor(_organ_bias_init, dtype=torch.float32))
         self.report_logit_scale = nn.Parameter(torch.tensor(math.log(_organ_scale_init), dtype=torch.float32))
         self.report_logit_bias = nn.Parameter(torch.tensor(_organ_bias_init, dtype=torch.float32))
+        self._organ_logit_scale_max_log = math.log(float(config.model.organs.organ_logit_scale_max))
         self.segmentation_loss_type = config.loss.segmentation_loss_type
         self.patch_size = tuple(int(v) for v in config.model.patching.patch_size)
         self.patch_stride = tuple(int(v) for v in config.model.patching.patch_stride)
@@ -310,9 +311,9 @@ class OrganSegCLIPModel(nn.Module):
             lesion_global_logits=lesion_global_logits,
             lesion_organ_logits=lesion_organ_logits,
             logit_scale=self.logit_scale.exp().clamp(max=100.0),
-            organ_logit_scale=self.organ_logit_scale.clamp(min=0.0, max=math.log(100.0)).exp(),
+            organ_logit_scale=self.organ_logit_scale.clamp(min=0.0, max=self._organ_logit_scale_max_log).exp(),
             organ_logit_bias=self.organ_logit_bias.clamp(min=-20.0, max=20.0),
-            report_logit_scale=self.report_logit_scale.clamp(min=0.0, max=math.log(100.0)).exp(),
+            report_logit_scale=self.report_logit_scale.clamp(min=0.0, max=self._organ_logit_scale_max_log).exp(),
             report_logit_bias=self.report_logit_bias.clamp(min=-20.0, max=20.0),
             segmentation_loss=segmentation_loss_sum / patch_count,
             segmentation_dice=segmentation_dice_sum / patch_count,
@@ -341,8 +342,8 @@ class OrganSegCLIPModel(nn.Module):
 
     @torch.no_grad()
     def clamp_alignment_parameters(self) -> None:
-        self.organ_logit_scale.clamp_(min=0.0, max=math.log(100.0))
-        self.report_logit_scale.clamp_(min=0.0, max=math.log(100.0))
+        self.organ_logit_scale.clamp_(min=0.0, max=self._organ_logit_scale_max_log)
+        self.report_logit_scale.clamp_(min=0.0, max=self._organ_logit_scale_max_log)
         self.organ_logit_bias.clamp_(min=-20.0, max=20.0)
         self.report_logit_bias.clamp_(min=-20.0, max=20.0)
 

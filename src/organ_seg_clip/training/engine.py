@@ -298,6 +298,11 @@ def run_encoder_training(config: EncoderConfig) -> dict[str, Any]:
                         flush=True,
                     )
                 break
+        freeze_after = config.training.freeze_text_projection_after_epoch
+        if freeze_after is not None and epoch == int(freeze_after):
+            _freeze_text_projection(model)
+            if is_main_process():
+                print(f"[freeze_text_projection] freezing text projection after epoch {epoch}", flush=True)
         if epoch == start_epoch:
             resume_step = 0
     summary = {
@@ -818,6 +823,13 @@ def _clamp_alignment_parameters(model: torch.nn.Module) -> None:
     clamp = getattr(target, "clamp_alignment_parameters", None)
     if clamp is not None:
         clamp()
+
+
+def _freeze_text_projection(model: torch.nn.Module) -> None:
+    target = model.module if hasattr(model, "module") else model
+    text_encoder = getattr(target, "text_encoder", None)
+    if text_encoder is not None and hasattr(text_encoder, "freeze_projection"):
+        text_encoder.freeze_projection()
 
 
 def _move_batch_to_device(batch: EncoderBatch, device: torch.device) -> EncoderBatch:

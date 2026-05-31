@@ -181,6 +181,10 @@ class HFTextEncoder(_BaseTextEncoder):
         torch.save(merged, path)
         print(f"[text_encoder] disk cache saved: {len(merged)} entries → {path}", flush=True)
 
+    def freeze_projection(self) -> None:
+        for parameter in self.proj.parameters():
+            parameter.requires_grad = False
+
     def _configure_encoder_trainability(self) -> None:
         self._set_module_requires_grad(self.encoder, False)
         if self.config.unfreeze_last_n_layers > 0:
