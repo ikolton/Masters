@@ -969,7 +969,15 @@ def _run_grad_cache_macro_step(
             align_signal = align_signal + (out.organ_image_embeddings.float() * leaf_img[i].grad).sum()
         if leaf_txt[i].grad is not None:
             align_signal = align_signal + (out.organ_text_embeddings.float() * leaf_txt[i].grad).sum()
-        chunk_loss = non_align / n + align_signal / n
+        # Zero-touch outputs that DDP saw in forward but aren't in non_align or align_signal.
+        # This is the standard DDP trick: ×0 pulls params into the backward graph so DDP
+        # doesn't wait forever for their all-reduce and raise "unused parameters" errors.
+        ddp_touch = (
+            out.report_image_embeddings.sum() * 0.0
+            + out.report_text_embeddings.sum() * 0.0
+            + out.lesion_global_logits.sum() * 0.0
+        )
+        chunk_loss = non_align / n + align_signal / n + ddp_touch
         scaler.scale(chunk_loss).backward()
 
     if config.training.max_grad_norm is not None:
