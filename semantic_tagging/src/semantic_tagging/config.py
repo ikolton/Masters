@@ -51,6 +51,12 @@ class PromptConfig:
     fewshot_dir: str
     max_fewshot_examples: int = 5
     include_existing_subtypes: bool = True
+    # "organ": use per-organ example file with generic fallback (legacy behaviour).
+    # "generic": always use the single organ-agnostic synthetic example file
+    #            (prompts/fewshot/_generic.jsonl) for every organ. Used by the
+    #            automatic/corpus-induced pipeline so no organ-specific or
+    #            corpus-derived examples enter the prompt.
+    fewshot_mode: str = "organ"
 
 
 @dataclass(frozen=True)

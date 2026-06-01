@@ -1,0 +1,55 @@
+# Corpus-level consolidation for the clean automatic pipeline (Liver test).
+# Single source run, NO organ_overrides (no targeted hand-fixed re-runs).
+# Thresholds are fixed stability filters, not downstream-tuned hyperparameters.
+project:
+  dataset_id: merlin_converted
+  consolidation_id: auto_consolidation_liver_v1
+
+paths:
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging
+
+source_runs:
+  base:
+    run_id: auto_liver_v1
+    decision_file: validated_decisions.partial.jsonl
+  organ_overrides: {}
+
+consolidation:
+  min_direct_count: 100
+  min_review_count: 20
+  examples_per_tag: 8
+  candidate_label_limit: 40
+  controlled_families:
+    - normal
+    - absent_postop
+    - focal_lesion
+    - mass_or_malignancy
+    - inflammation
+    - wall_thickening
+    - ductal_or_luminal_dilatation
+    - obstruction
+    - stone_or_calcification
+    - cystic_or_fluid_lesion
+    - fluid_or_collection
+    - vascular
+    - gas_or_air
+    - postoperative_or_device
+    - anatomic_variant
+    - size_or_morphology
+    - limited_assessment
+    - ambiguous_or_indeterminate
+    - trauma_or_injury
+    - fistula_or_sinus_tract
+    - hernia_or_prolapse
+    - atrophy_or_fatty_change
+    - other_abnormal
+  llm:
+    model_name: meta-llama/Llama-3.3-70B-Instruct
+    base_url: http://127.0.0.1:8000/v1
+    api_key_env: VLLM_API_KEY
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 384
+    request_concurrency: 16
+    request_retries: 4
+    retry_backoff_seconds: 2.0

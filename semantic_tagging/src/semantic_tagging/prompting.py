@@ -71,10 +71,15 @@ class PromptCompiler:
         )
 
     def _load_examples(self, organ: str) -> list[PromptExample]:
-        filename = organ.lower().replace(" ", "_") + ".jsonl"
-        path = self.prompt_root / self.config.fewshot_dir / filename
-        if not path.is_file():
+        if getattr(self.config, "fewshot_mode", "organ") == "generic":
+            # Automatic pipeline: always use the organ-agnostic synthetic examples,
+            # never per-organ or corpus-derived ones.
             path = self.prompt_root / self.config.fewshot_dir / "_generic.jsonl"
+        else:
+            filename = organ.lower().replace(" ", "_") + ".jsonl"
+            path = self.prompt_root / self.config.fewshot_dir / filename
+            if not path.is_file():
+                path = self.prompt_root / self.config.fewshot_dir / "_generic.jsonl"
         examples: list[PromptExample] = []
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:

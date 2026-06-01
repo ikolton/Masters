@@ -1,0 +1,9 @@
+# Clean automatic pipeline: no hand-written subtypes.
+# All organ-specific subtype concepts are induced from the corpus by the LLM
+# proposal pass and corpus-level consolidation. The only manual priors retained
+# are the controlled family vocabulary (shared_families.yaml) and the output
+# schema. Subtypes start empty and grow only via online proposals.
+organ: Liver
+maturity_tier: tier_0
+allow_online_expansion: true
+subtypes: {}
