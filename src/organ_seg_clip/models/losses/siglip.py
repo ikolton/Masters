@@ -39,6 +39,7 @@ def masked_organ_siglip_loss(
     frequency_balance_max: float = 4.0,
     soft_positive_threshold: float | None = None,
     hard_negative_weight: float = 1.0,
+    mask_cross_study_same_finding: bool = False,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     if organ_embeddings.shape[:2] != organ_text_embeddings.shape[:2] or organ_embeddings.shape[:2] != organ_mask.shape:
         raise ValueError("organ embeddings, text embeddings, and mask must agree on [batch, organ].")
@@ -88,6 +89,20 @@ def masked_organ_siglip_loss(
                 hard_neg_pair_weights = torch.ones_like(soft_sim)
                 hard_neg_pair_weights[hard_neg_mask] = float(hard_negative_weight)
         image_valid_pairs = flat_mask.unsqueeze(1) & global_mask.unsqueeze(0)
+        if mask_cross_study_same_finding:
+            # Demote cross-study same-finding pairs from positive → invalid.
+            # "Same study" = same position in the all-gathered tensor (rank R contributes
+            # local positions [0..L-1] which map to global positions [R*L..(R+1)*L-1]).
+            local_size = image_embeddings.shape[0]
+            rank = torch.distributed.get_rank() if _is_distributed() else 0
+            global_offset = rank * local_size
+            global_size = global_image_embeddings.shape[0]
+            local_idx = torch.arange(local_size, device=image_embeddings.device)
+            global_idx = torch.arange(global_size, device=image_embeddings.device)
+            same_position = local_idx.unsqueeze(1) == (global_idx - global_offset).unsqueeze(0)
+            cross_study_same_finding = image_positive_mask & ~same_position
+            image_valid_pairs = image_valid_pairs & ~cross_study_same_finding
+            image_positive_mask = image_positive_mask & same_position
         image_positive_mask = image_positive_mask & image_valid_pairs
         text_positive_mask = image_positive_mask.clone()
         logits_image_to_text = scale * image_embeddings @ global_text_embeddings.transpose(0, 1) + bias
@@ -140,6 +155,12 @@ def masked_organ_siglip_loss(
             hard_neg_pair_weights = torch.ones_like(soft_sim)
             hard_neg_pair_weights[hard_neg_mask] = float(hard_negative_weight)
     valid_pairs = flat_mask.unsqueeze(1) & flat_mask.unsqueeze(0)
+    if mask_cross_study_same_finding:
+        n = image_embeddings.shape[0]
+        same_position = torch.eye(n, dtype=torch.bool, device=flat_image.device)
+        cross_study_same_finding = positive_mask & ~same_position
+        valid_pairs = valid_pairs & ~cross_study_same_finding
+        positive_mask = positive_mask & same_position
     positive_mask = positive_mask & valid_pairs
     logits = scale * image_embeddings @ text_embeddings.transpose(0, 1) + bias
     if pair_balance:

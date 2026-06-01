@@ -910,6 +910,7 @@ def _compute_pool_alignment_loss(
         frequency_balance_max=float(cfg.organ_frequency_balance_max),
         soft_positive_threshold=cfg.siglip_soft_positive_threshold,
         hard_negative_weight=float(cfg.siglip_hard_negative_weight),
+        mask_cross_study_same_finding=bool(cfg.mask_cross_study_same_finding),
     )
 
 

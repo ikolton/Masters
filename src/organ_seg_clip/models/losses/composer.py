@@ -43,6 +43,7 @@ class OrganSegLossComposer(nn.Module):
                 frequency_balance_max=float(self.config.organ_frequency_balance_max),
                 soft_positive_threshold=self.config.siglip_soft_positive_threshold,
                 hard_negative_weight=float(self.config.siglip_hard_negative_weight),
+                mask_cross_study_same_finding=bool(self.config.mask_cross_study_same_finding),
             )
         else:
             organ_clip_loss, organ_metrics = masked_organ_clip_loss(

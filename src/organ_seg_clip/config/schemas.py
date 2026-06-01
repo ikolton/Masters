@@ -284,6 +284,7 @@ class LossConfig:
     segmentation_loss_type: str = "dice_ce"
     siglip_soft_positive_threshold: float | None = None
     siglip_hard_negative_weight: float = 1.0
+    mask_cross_study_same_finding: bool = False
 
     def __post_init__(self) -> None:
         if self.segmentation_loss_type not in {"ce", "dice_ce"}:

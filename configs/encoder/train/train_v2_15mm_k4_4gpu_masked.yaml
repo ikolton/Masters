@@ -1,0 +1,152 @@
+data:
+  lesion_metadata_csv: ''
+  train_limit: null
+  train_split: train
+  val_limit: null
+  val_split: val
+logging:
+  experiment_name: organ_seg_clip
+  wandb_enabled: true
+  wandb_mode: online
+  wandb_project: organ_seg_clip
+  wandb_run_name: v2_15mm_k4_4gpu_masked
+  wandb_step_log_start: 0
+  wandb_tags:
+  - encoder
+  - v2
+  - 1.5mm
+  - 160x160x64
+  - gradcache_k4
+  - act_ckpt
+  - seg025
+  - logit_max20
+  - freeze_proj_ep5
+  - 4gpu
+  - bs6
+  - masked_no_freeze
+loss:
+  alignment_type: siglip
+  diagnostic_weight: 0.25
+  lesion_global_weight: 0.0
+  lesion_organ_weight: 0.05
+  mask_cross_study_same_finding: true
+  organ_alignment_weight: 1.0
+  organ_attention_weight: 0.1
+  organ_cross_organ_weight: 0.0
+  organ_frequency_balance: false
+  organ_frequency_balance_max: 4.0
+  organ_frequency_balance_min: 0.25
+  organ_frequency_balance_power: 0.5
+  organ_pair_balance: true
+  organ_positive_weight: 1.0
+  organ_same_organ_weight: 1.0
+  patch_organ_presence_weight: 0.1
+  report_alignment_weight: 0.0
+  segmentation_loss_type: dice_ce
+  segmentation_weight: 0.25
+model:
+  aggregator:
+    dropout: 0.1
+    num_heads: 8
+    num_latents: 32
+    num_layers: 2
+  grid_combiner:
+    depth: 2
+    dropout: 0.1
+    enabled: true
+    num_heads: 8
+    position_features: grid_box
+  organ_query_count: 11
+  organs:
+    diagnostic_dropout: 0.1
+    organ_logit_scale_max: 20.0
+  patching:
+    patch_batch_size: 16
+    patch_size:
+    - 160
+    - 160
+    - 64
+    patch_stride:
+    - 160
+    - 160
+    - 64
+    segmentation_supervision_max_patches_per_study: 1
+  segmamba:
+    activation_checkpointing: true
+    depths:
+    - 2
+    - 2
+    - 2
+    - 2
+    feat_size:
+    - 48
+    - 96
+    - 192
+    - 384
+    in_channels: 1
+    pretrained_checkpoint_path: ''
+    segmentation_class_count: 23
+    segmentation_full_resolution: false
+  tokenizer:
+    model_dim: 256
+    summary_grid:
+    - 3
+    - 3
+    - 2
+paths:
+  dataset_root: ''
+  dataset_root_env: ORGAN_SEG_CLIP_DATASET_ROOT
+  output_dir: ../../../outputs/encoder/v2_15mm_k4_4gpu_masked
+preprocessing:
+  canonical_size: null
+  foreground_crop: true
+  resample_spacing:
+  - 1.5
+  - 1.5
+  - 1.5
+runtime:
+  compile_model: false
+text_encoder:
+  backend_family: pubmedbert
+  cache_frozen_outputs: true
+  disk_cache_path: /net/scratch/hscra/plgrid/plgikolton/text_embedding_cache/pubmedbert_base_uncased_abstract_fulltext.pt
+  freeze_encoder: true
+  max_tokens: 48
+  model_name: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext
+  pooling: cls
+  projection_dim: 256
+  report_max_tokens: 512
+  unfreeze_last_n_layers: 0
+training:
+  alignment_parameter_learning_rate: 1.0e-05
+  amp: true
+  amp_dtype: bfloat16
+  batch_size: 6
+  best_checkpoint_metric: full_val_organ_alignment_loss
+  ddp_find_unused_parameters: true
+  device: cuda
+  early_stopping_patience: 4
+  epochs: 20
+  fast_val_limit: 512
+  fast_val_sampling: fixed
+  fast_val_skip_segmentation: true
+  grad_cache_accum_steps: 4
+  learning_rate: 0.0001
+  log_every_steps: 25
+  max_grad_norm: 1.0
+  min_learning_rate: 1.0e-06
+  num_workers: 4
+  patch_encoder_learning_rate_scale: 0.1
+  persistent_workers: true
+  pin_memory: true
+  prefetch_factor: 2
+  profile_timing: false
+  save_best_checkpoint: true
+  save_every_steps: 1000
+  save_last_checkpoint: true
+  scheduler_interval: step
+  scheduler_type: cosine
+  seed: 13
+  validation_every_epochs: 2
+  warmup_steps: 500
+  weight_decay: 0.0001
