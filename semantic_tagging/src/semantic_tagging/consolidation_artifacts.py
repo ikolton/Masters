@@ -23,10 +23,26 @@ class ConsolidationConfig:
     organ_overrides: dict[str, dict[str, str]]
     min_direct_count: int
     min_review_count: int
+    min_direct_fraction: float | None  # if set, overrides min_direct_count using corpus size
+    min_review_fraction: float | None  # if set, overrides min_review_count using corpus size
+    min_direct_floor: int              # minimum floor when using fraction
+    min_review_floor: int
     examples_per_tag: int
     candidate_label_limit: int
     include_normal_tags: bool
     raw: dict[str, Any]
+
+    def effective_thresholds(self, n_unique_texts: int) -> tuple[int, int]:
+        """Compute (min_direct, min_review) from fraction×N or fixed counts."""
+        if self.min_direct_fraction is not None:
+            direct = max(self.min_direct_floor, int(self.min_direct_fraction * n_unique_texts))
+        else:
+            direct = self.min_direct_count
+        if self.min_review_fraction is not None:
+            review = max(self.min_review_floor, int(self.min_review_fraction * n_unique_texts))
+        else:
+            review = self.min_review_count
+        return direct, review
 
     @property
     def output_dir(self) -> Path:
@@ -49,6 +65,10 @@ def load_consolidation_config(path: Path) -> ConsolidationConfig:
         organ_overrides=dict(payload["source_runs"].get("organ_overrides", {})),
         min_direct_count=int(consolidation.get("min_direct_count", 100)),
         min_review_count=int(consolidation.get("min_review_count", 20)),
+        min_direct_fraction=float(consolidation["min_direct_fraction"]) if "min_direct_fraction" in consolidation else None,
+        min_review_fraction=float(consolidation["min_review_fraction"]) if "min_review_fraction" in consolidation else None,
+        min_direct_floor=int(consolidation.get("min_direct_floor", 20)),
+        min_review_floor=int(consolidation.get("min_review_floor", 5)),
         examples_per_tag=int(consolidation.get("examples_per_tag", 8)),
         candidate_label_limit=int(consolidation.get("candidate_label_limit", 40)),
         include_normal_tags=bool(consolidation.get("include_normal_tags", True)),
@@ -178,10 +198,17 @@ def _build_tag_stats(decisions: list[dict[str, Any]], *, config: ConsolidationCo
                     }
                 )
 
+    # compute per-organ unique text counts for fraction-based thresholds
+    organ_unique_counts: dict[str, int] = defaultdict(int)
+    for row in decisions:
+        organ_unique_counts[str(row["organ"])] += 1
+
     stats: list[dict[str, Any]] = []
     for bucket in buckets.values():
         total = int(bucket["unique_text_count"])
-        bucket["frequency_tier"] = _frequency_tier(total, config=config)
+        n_organ = organ_unique_counts.get(str(bucket["organ"]), 1)
+        min_direct, min_review = config.effective_thresholds(n_organ)
+        bucket["frequency_tier"] = _frequency_tier(total, min_direct=min_direct, min_review=min_review)
         for key in ("normality_counts", "polarity_counts", "certainty_counts", "decision_status_counts", "decision_source_counts"):
             bucket[key] = dict(bucket[key])
         stats.append(bucket)
@@ -196,14 +223,20 @@ def _build_llm_items(tag_stats: list[dict[str, Any]], *, config: ConsolidationCo
 
     items: list[dict[str, Any]] = []
     for organ, rows in sorted(by_organ.items()):
-        candidate_labels = [
-            {
+        top_rows = sorted(rows, key=lambda item: -int(item["unique_text_count"]))[: config.candidate_label_limit]
+        # Group candidates by inferred family so the LLM sees related concepts together
+        by_family: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in top_rows:
+            family = _infer_family_for_grouping(str(row["observed_subtype"]))
+            by_family[family].append({
                 "observed_subtype": row["observed_subtype"],
                 "unique_text_count": row["unique_text_count"],
                 "frequency_tier": row["frequency_tier"],
-            }
-            for row in sorted(rows, key=lambda item: -int(item["unique_text_count"]))[: config.candidate_label_limit]
-        ]
+            })
+        candidate_labels_by_family = {
+            fam: sorted(items, key=lambda x: -x["unique_text_count"])
+            for fam, items in sorted(by_family.items())
+        }
         for row in rows:
             items.append(
                 {
@@ -211,7 +244,7 @@ def _build_llm_items(tag_stats: list[dict[str, Any]], *, config: ConsolidationCo
                     "organ": organ,
                     "observed_subtype": row["observed_subtype"],
                     "tag_stats": row,
-                    "candidate_training_labels_for_organ": candidate_labels,
+                    "candidate_training_labels_by_family": candidate_labels_by_family,
                     "allowed_modes": ["direct", "merged", "family_only", "exclude"],
                     "instructions": (
                         "Choose how this observed semantic subtype should be used for diagnostic-loss training. "
@@ -234,14 +267,39 @@ def _row_tags(row: dict[str, Any]) -> list[tuple[str, str]]:
     return tags
 
 
-def _frequency_tier(count: int, *, config: ConsolidationConfig) -> str:
-    if count >= config.min_direct_count:
+def _frequency_tier(count: int, *, min_direct: int, min_review: int) -> str:
+    if count >= min_direct:
         return "frequent"
-    if count >= config.min_review_count:
+    if count >= min_review:
         return "review"
     if count >= 5:
         return "rare"
     return "very_rare"
+
+
+def _infer_family_for_grouping(label: str) -> str:
+    v = label.lower()
+    checks = [
+        (("normal", "unremarkable"), "normal"),
+        (("absent", "postop", "surgical"), "absent_postop"),
+        (("steatosis", "fatty", "fat", "lipid", "atrophy", "atrophic", "cirrhosis", "cirrhotic"), "atrophy_or_fatty_change"),
+        (("cyst", "cystic", "hypodensit", "hypoattenuat", "hypodense", "fluid_lesion", "hemangioma", "hamartoma"), "cystic_or_fluid_lesion"),
+        (("dilatat", "dilat", "ductal", "biliary", "duct"), "ductal_or_luminal_dilatation"),
+        (("metastas", "metastasis", "metastatic", "mass", "malignan", "hcc", "tumor", "carcinoma", "lesion", "nodule"), "mass_or_malignancy"),
+        (("edema", "inflam", "abscess", "periportal"), "inflammation"),
+        (("thrombus", "thrombosis", "vascular", "shunt", "perfusion", "varices"), "vascular"),
+        (("calcif", "stone", "gallstone"), "stone_or_calcification"),
+        (("collection", "fluid_collection", "biloma"), "fluid_or_collection"),
+        (("pneumobilia", "gas", "air"), "gas_or_air"),
+        (("lacerat", "hematoma", "infarct", "trauma"), "trauma_or_injury"),
+        (("enlarg", "hepatomegaly", "size", "morphology", "contour", "hypertrophy"), "size_or_morphology"),
+        (("postop", "resection", "transplant", "surgical_change"), "postoperative_or_device"),
+        (("indeterminate", "ambiguous", "possible", "unknown"), "ambiguous_or_indeterminate"),
+    ]
+    for needles, family in checks:
+        if any(n in v for n in needles):
+            return family
+    return "other"
 
 
 def _write_tag_stats_csv(path: Path, rows: list[dict[str, Any]]) -> None:

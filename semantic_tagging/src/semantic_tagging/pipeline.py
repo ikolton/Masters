@@ -19,6 +19,32 @@ from .types import ProposedFamily, ProposedSubtype, RowLevelTag, RunSummary, Sou
 from .validation import ValidationError, build_tag_decision_with_family, parse_llm_json
 
 
+def _make_label_derived_normal_decision(record: UniqueTextRecord) -> dict[str, Any]:
+    """Deterministic normal decision for organ_abnormal_label=0 records — no LLM call."""
+    organ_prefix = record.organ.lower().replace(" ", "_")
+    return {
+        "organ": record.organ,
+        "raw_text": record.raw_text,
+        "normalized_text": record.normalized_text,
+        "normality": "normal",
+        "polarity": "negative",
+        "certainty": "certain",
+        "primary_subtype": f"{organ_prefix}_normal",
+        "secondary_subtypes": [],
+        "modifiers": [],
+        "evidence_spans": [],
+        "confidence": 1.0,
+        "decision_status": "accepted",
+        "decision_source": "label_derived",
+        "ontology_version": None,
+        "proposed_new_subtype": None,
+        "proposed_new_family": None,
+        "validation_flags": ["label_derived_normal"],
+        "source_model": "label_derived",
+        "source_backend": "label_derived",
+    }
+
+
 class SemanticTaggingPipeline:
     def __init__(
         self,
@@ -164,11 +190,28 @@ class SemanticTaggingPipeline:
                 batch = records[batch_index : batch_index + self.config.execution.batch_size]
                 batch_start = time.time()
                 requests_batch = []
+                llm_batch: list[UniqueTextRecord] = []
                 batch_raw_rows: list[dict[str, Any]] = []
                 batch_validated_rows: list[dict[str, Any]] = []
+
+                # Records with organ_abnormal_label=0 are healthy by label — skip LLM,
+                # write a deterministic normal decision directly.
                 for item_index, record in enumerate(batch):
-                    request_id = f"{organ}:{batch_index + item_index}"
-                    requests_batch.append(self.prompt_compiler.compile_request(record, request_id=request_id))
+                    if record.organ_abnormal_label == 0:
+                        decision = _make_label_derived_normal_decision(record)
+                        batch_validated_rows.append(decision)
+                        validated_rows.append(decision)
+                        completed_keys.add((record.organ, record.raw_text))
+                    else:
+                        request_id = f"{organ}:{batch_index + item_index}"
+                        requests_batch.append(self.prompt_compiler.compile_request(record, request_id=request_id))
+                        llm_batch.append(record)
+
+                if not requests_batch:
+                    append_jsonl(partial_validated_path, batch_validated_rows)
+                    processed_records += len(batch)
+                    continue
+
                 try:
                     responses = self.backend.generate_batch(requests_batch)
                 except Exception as exc:
@@ -186,7 +229,7 @@ class SemanticTaggingPipeline:
                         error=exc,
                     )
                     raise
-                for request, response, record in zip(requests_batch, responses, batch):
+                for request, response, record in zip(requests_batch, responses, llm_batch):
                     raw_row = {
                         "request_id": response.request_id,
                         "organ": record.organ,

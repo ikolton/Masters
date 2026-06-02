@@ -510,7 +510,7 @@ def _user_prompt(item: dict[str, Any], *, allowed_families: list[str]) -> str:
             "observed_subtype": item["observed_subtype"],
             "controlled_training_families": allowed_families,
             "stats": item["tag_stats"],
-            "candidate_training_labels_for_organ": item["candidate_training_labels_for_organ"],
+            "candidate_training_labels_by_family": item.get("candidate_training_labels_by_family", item.get("candidate_training_labels_for_organ", [])),
             "decision_guidance": {
                 "frequent_clean_labels": "usually direct unless a more canonical synonym already exists among the candidates or examples show leakage or wording duplication",
                 "review_labels": "prefer merge_to_subtype over direct when a synonym or wording variant exists among the frequent candidates; only use direct if no equivalent candidate exists",

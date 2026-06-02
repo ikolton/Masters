@@ -61,6 +61,7 @@ def run_postprocess(config: PostprocessConfig, *, config_path: Path) -> dict[str
 
     map_rows = [_postprocess_decision(row, stats_by_key.get((str(row["organ"]), str(row["observed_subtype"])), {}), config) for row in decision_rows]
     map_rows = _resolve_subtype_cycles(map_rows)
+    _inject_normal_subtype(composed_rows, map_rows)
     training_vocab = _build_clean_vocab(map_rows)
     review_rows = [row for row in map_rows if row["review_required"]]
     target_rows = _materialize_unique_text_targets(composed_rows, map_rows)
@@ -316,6 +317,34 @@ def _review_flags(
 
 def _is_low_risk_family(row: dict[str, Any], family_label: str | None) -> bool:
     return family_label in {"normal", "absent_postop", "postoperative_or_device", "limited_assessment"}
+
+
+def _inject_normal_subtype(composed_rows: list[dict[str, Any]], map_rows: list[dict[str, Any]]) -> None:
+    """For texts where the LLM said normality=normal but no subtype was assigned,
+    inject {organ}_normal in-place. Catches LLM-tagged normal findings that
+    weren't covered by the label_derived pipeline path."""
+    norm_text_to_normality: dict[tuple[str, str], str] = {}
+    for row in composed_rows:
+        key = (str(row["organ"]), str(row["normalized_text"]))
+        norm_text_to_normality[key] = str(row.get("normality") or "")
+
+    for row in map_rows:
+        if row["use_for_subtype_loss"] or row["exclude_from_loss"]:
+            continue
+        organ = str(row["organ"])
+        observed = str(row["observed_subtype"])
+        key = (organ, observed)
+        normality = norm_text_to_normality.get(key, "")
+        if normality == "normal":
+            prefix = _organ_prefix(organ)
+            row["use_for_subtype_loss"] = True
+            row["subtype_mode"] = "direct"
+            row["subtype_label"] = f"{prefix}_normal"
+            row["subtype_loss_weight"] = 1.0
+            row["use_for_family_loss"] = True
+            row["family_label"] = "normal"
+            row["family_loss_weight"] = 1.0
+            row["review_flags"] = sorted(set(row.get("review_flags", []) + ["normal_injected"]))
 
 
 def _resolve_subtype_cycles(map_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

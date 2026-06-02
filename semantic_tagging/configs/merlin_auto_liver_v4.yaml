@@ -1,0 +1,73 @@
+# Clean automatic semantic-tagging pipeline — single-organ test (Liver), v3.
+#
+# Thesis-defensible design: the only manual semantic priors are the output
+# schema, the controlled family vocabulary (ontology_auto/shared_families.yaml),
+# and a fixed set of organ-agnostic synthetic schema examples
+# (prompts/fewshot/_generic.jsonl). No organ-specific examples and no
+# hand-written subtype inventory enter the prompt or the ontology.
+#
+#   - fewshot_mode: generic          -> only _generic.jsonl, identical for every organ
+#   - include_existing_subtypes: true -> model sees the growing provisional vocabulary
+#                                        and is instructed to prefer existing terms.
+#                                        Vocabulary is empty at start and induced online;
+#                                        each batch's proposals are shown to subsequent
+#                                        batches, enabling self-standardisation.
+#   - ontology_root: ontology_auto   -> empty subtypes; concepts induced online
+project:
+  dataset_id: merlin_converted
+  run_id: auto_liver_v4
+
+paths:
+  dataset_root: /net/storage/pr3/plgrid/plggjmiag/Merlin_converted
+  lesion_csv: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Merlin_metadata_hf_clean.csv
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging
+  ontology_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/semantic_tagging/ontology_auto
+  prompt_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/semantic_tagging/prompts
+  schema_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/semantic_tagging/schemas
+
+dataset:
+  splits: [train, val]
+  verify_files: true
+  organ_names:
+    - Liver
+
+prompt:
+  system_template: system_v1.md
+  user_template: user_v1.md
+  output_schema: output_schema_v1.json
+  fewshot_dir: fewshot
+  fewshot_mode: generic
+  max_fewshot_examples: 5
+  include_existing_subtypes: true
+
+ontology:
+  allow_online_expansion: true
+  proposal_confidence_threshold: 0.70
+  duplicate_similarity_threshold: 0.88
+  max_provisional_examples_per_subtype: 8
+
+execution:
+  batch_size: 32
+  retry_attempts: 1
+  worker_index: 0
+  num_workers: 1
+  resume: true
+  max_records_per_organ: null
+
+backend:
+  kind: vllm
+  model_name: meta-llama/Llama-3.3-70B-Instruct
+  base_url: http://127.0.0.1:8000/v1
+  api_key_env: VLLM_API_KEY
+  timeout_seconds: 120
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 320
+  use_response_format_json: false
+  use_guided_json: false
+  request_concurrency: 32
+  request_retries: 4
+  retry_backoff_seconds: 2.0
+
+reporting:
+  write_summary_markdown: true
