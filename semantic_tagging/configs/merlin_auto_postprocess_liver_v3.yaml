@@ -1,0 +1,40 @@
+# Deterministic postprocess: min-support filtering + locked-vocabulary
+# assignment. Concepts below support drop to family-only supervision rather
+# than being discarded. Fully deterministic; no LLM calls.
+project:
+  dataset_id: merlin_converted
+  postprocess_id: auto_postprocess_liver_v3_clean
+
+paths:
+  output_root: /net/scratch/hscra/plgrid/plgikolton/Magisterka/Masters/outputs/semantic_tagging
+
+source:
+  consolidation_id: auto_consolidation_liver_v3
+
+postprocess:
+  min_subtype_count_without_review: 20
+  review_very_rare_family_only: true
+  controlled_families:
+    - normal
+    - absent_postop
+    - focal_lesion
+    - mass_or_malignancy
+    - inflammation
+    - wall_thickening
+    - ductal_or_luminal_dilatation
+    - obstruction
+    - stone_or_calcification
+    - cystic_or_fluid_lesion
+    - fluid_or_collection
+    - vascular
+    - gas_or_air
+    - postoperative_or_device
+    - anatomic_variant
+    - size_or_morphology
+    - limited_assessment
+    - ambiguous_or_indeterminate
+    - trauma_or_injury
+    - fistula_or_sinus_tract
+    - hernia_or_prolapse
+    - atrophy_or_fatty_change
+    - other_abnormal

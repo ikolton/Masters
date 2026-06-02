@@ -60,6 +60,7 @@ def run_postprocess(config: PostprocessConfig, *, config_path: Path) -> dict[str
     stats_by_key = {(str(row["organ"]), str(row["observed_subtype"])): row for row in stats_rows}
 
     map_rows = [_postprocess_decision(row, stats_by_key.get((str(row["organ"]), str(row["observed_subtype"])), {}), config) for row in decision_rows]
+    map_rows = _resolve_subtype_cycles(map_rows)
     training_vocab = _build_clean_vocab(map_rows)
     review_rows = [row for row in map_rows if row["review_required"]]
     target_rows = _materialize_unique_text_targets(composed_rows, map_rows)
@@ -315,6 +316,61 @@ def _review_flags(
 
 def _is_low_risk_family(row: dict[str, Any], family_label: str | None) -> bool:
     return family_label in {"normal", "absent_postop", "postoperative_or_device", "limited_assessment"}
+
+
+def _resolve_subtype_cycles(map_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Detect and break A→B / B→A circular merge pairs.
+
+    When the LLM concurrently decides that observed label A should merge into
+    canonical B and observed label B should merge into canonical A, both labels
+    survive as separate vocabulary entries. We resolve each cycle by redirecting
+    the lower-count label to the higher-count one.
+    """
+    # observed (organ, obs) → canonical subtype_label
+    obs_to_canonical: dict[tuple[str, str], str] = {}
+    obs_count: dict[tuple[str, str], int] = {}
+    for row in map_rows:
+        if row.get("use_for_subtype_loss") and row.get("subtype_label"):
+            key = (str(row["organ"]), str(row["observed_subtype"]))
+            obs_to_canonical[key] = str(row["subtype_label"])
+            obs_count[key] = int(row.get("unique_text_count") or 0)
+
+    # redirects: (organ, loser_canonical) → winner_canonical
+    redirects: dict[tuple[str, str], str] = {}
+    seen: set[frozenset[str]] = set()
+    for (organ, obs_a), canonical_b in obs_to_canonical.items():
+        if canonical_b == obs_a:
+            continue
+        key_b = (organ, canonical_b)
+        if key_b not in obs_to_canonical:
+            continue
+        canonical_a_via_b = obs_to_canonical[key_b]
+        if canonical_a_via_b != obs_a:
+            continue
+        pair = frozenset([obs_a, canonical_b])
+        if pair in seen:
+            continue
+        seen.add(pair)
+        count_a = obs_count.get((organ, obs_a), 0)
+        count_b = obs_count.get((organ, canonical_b), 0)
+        winner, loser = (obs_a, canonical_b) if count_a >= count_b else (canonical_b, obs_a)
+        redirects[(organ, loser)] = winner
+
+    if not redirects:
+        return map_rows
+
+    updated: list[dict[str, Any]] = []
+    for row in map_rows:
+        if row.get("use_for_subtype_loss") and row.get("subtype_label"):
+            organ = str(row["organ"])
+            canonical = str(row["subtype_label"])
+            if (organ, canonical) in redirects:
+                row = dict(row)
+                row["subtype_label"] = redirects[(organ, canonical)]
+                row["review_flags"] = sorted(set(list(row.get("review_flags") or []) + ["cycle_resolved"]))
+                row["review_required"] = True
+        updated.append(row)
+    return updated
 
 
 def _build_clean_vocab(map_rows: list[dict[str, Any]]) -> dict[str, Any]:
