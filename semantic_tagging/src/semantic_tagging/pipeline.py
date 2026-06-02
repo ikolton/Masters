@@ -197,7 +197,7 @@ class SemanticTaggingPipeline:
                 # Records with organ_abnormal_label=0 are healthy by label — skip LLM,
                 # write a deterministic normal decision directly.
                 for item_index, record in enumerate(batch):
-                    if record.organ_abnormal_label == 0:
+                    if record.abnormal_positive_count == 0 and record.abnormal_negative_count > 0:
                         decision = _make_label_derived_normal_decision(record)
                         batch_validated_rows.append(decision)
                         validated_rows.append(decision)
