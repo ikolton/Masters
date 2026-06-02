@@ -512,11 +512,12 @@ def _user_prompt(item: dict[str, Any], *, allowed_families: list[str]) -> str:
             "stats": item["tag_stats"],
             "candidate_training_labels_for_organ": item["candidate_training_labels_for_organ"],
             "decision_guidance": {
-                "frequent_clean_labels": "usually direct unless examples show leakage or wording duplication",
-                "review_labels": "use subtype if medically stable; otherwise use family only with a controlled family",
-                "rare_labels": "usually family only unless clinically important and clearly grounded as a subtype",
+                "frequent_clean_labels": "usually direct unless a more canonical synonym already exists among the candidates or examples show leakage or wording duplication",
+                "review_labels": "prefer merge_to_subtype over direct when a synonym or wording variant exists among the frequent candidates; only use direct if no equivalent candidate exists",
+                "rare_labels": "usually family only unless clinically important and clearly grounded as a subtype with no better candidate to merge into",
                 "very_rare_labels": "usually family only or exclude unless unmistakably important",
                 "normal_or_absent_postop": "use subtype and family when organ-specific and clean",
+                "synonym_merge_priority": "ALWAYS prefer merge_to_subtype over direct when the observed_subtype is a wording variant of a more frequent candidate. Common synonym patterns to merge: singular/plural (metastasis->metastases), organ-prefix variants (liver_X vs hepatic_X), equivalent medical terms (steatosis/fatty_infiltration/fatty_change/fatty_deposition), specificity variants (diffuse_steatosis->steatosis, focal_steatosis->steatosis), spelling variants (dilatation/dilation). Set merge_relation=synonym and subtype_label to the most frequent equivalent candidate.",
                 "unsafe_merges": "do not merge opposite or merely associated concepts into subtype labels; use family loss with needs_human_review=true when uncertain",
                 "forbidden_family_outputs": [
                     item["organ"],
